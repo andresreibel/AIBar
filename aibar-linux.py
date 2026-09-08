@@ -701,18 +701,19 @@ class DashboardWindow(Gtk.ApplicationWindow):
         return False
 
     def periodic_refresh(self):
-        self.refresh()
+        self.refresh(show_loading=False)
         return GLib.SOURCE_CONTINUE
 
-    def refresh(self):
+    def refresh(self, show_loading=True):
         if self.refreshing:
             return
         self.refreshing = True
         self.refresh_button.set_sensitive(False)
         self.error_label.set_visible(False)
-        self.loading_label.set_label("Loading usage…")
-        self.loading_spinner.start()
-        self.content_stack.set_visible_child_name("loading")
+        if show_loading:
+            self.loading_label.set_label("Loading usage…")
+            self.loading_spinner.start()
+            self.content_stack.set_visible_child_name("loading")
         started_at = time.monotonic()
         threading.Thread(target=self.load_payload, args=(started_at,), daemon=True).start()
 
