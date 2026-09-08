@@ -73,6 +73,7 @@ type Args = {
     toggleProvider: boolean;
     loginGrok: boolean;
     allProviders: boolean;
+    barSummary: boolean;
 };
 
 type UsageRowPacing = {
@@ -280,11 +281,16 @@ function parseArgs(argv: string[]): Args {
     let toggleProvider = false;
     let loginGrok = false;
     let allProviders = false;
+    let barSummary = false;
 
     for (let idx = 0; idx < argv.length; idx += 1) {
         const arg = argv[idx];
         if (arg == "--all") {
             allProviders = true;
+            continue;
+        }
+        if (arg == "--bar") {
+            barSummary = true;
             continue;
         }
         if (arg == "--toggle") {
@@ -311,6 +317,7 @@ function parseArgs(argv: string[]): Args {
         toggleProvider,
         loginGrok,
         allProviders,
+        barSummary,
     };
 }
 
@@ -1919,6 +1926,28 @@ export async function renderAllProviders(
     return { providers };
 }
 
+const PROVIDER_BADGES: Record<Provider, string> = {
+    claude: "A",
+    codex: "O",
+    grok: "S",
+};
+
+export function menuBarOutputPayload(aggregate: AllProvidersPayload): BarPayload {
+    const entries = aggregate.providers.filter(({ payload }) => isCompactEligible(payload.accessState));
+    const text = entries.map(({ provider, weeklyPace }) => {
+        const pace = weeklyPace == null
+            ? "--"
+            : `${weeklyPace > 0 ? "+" : ""}${Math.round(weeklyPace)}%`;
+        return `${PROVIDER_BADGES[provider]} ${pace}`;
+    }).join("  ");
+
+    return {
+        text: text || "AIBar",
+        tooltip: aggregate.providers.map(({ payload }) => payload.tooltip).filter(Boolean).join("\n\n") || "AIBar",
+        accessState: entries.some(({ payload }) => payload.accessState == "available") ? "available" : "stale",
+    };
+}
+
 // Render the newly selected provider right away so the bar's next poll picks
 // up a fresh cache instead of showing the old provider while a live fetch runs.
 async function primeRenderCache(provider: Provider): Promise<void> {
@@ -1946,6 +1975,10 @@ async function main(): Promise<void> {
         return;
     }
 
+    if (args.barSummary) {
+        console.log(JSON.stringify(menuBarOutputPayload(await renderAllProviders())));
+        return;
+    }
     if (args.allProviders) {
         console.log(JSON.stringify(await renderAllProviders()));
         return;

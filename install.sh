@@ -147,7 +147,7 @@ legacy[0].clear()
 legacy[0].update({
     "id": "aibar",
     "type": "command",
-    "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts",
+    "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts --bar",
     "interval": 1,
     "onClick": "~/.local/bin/aibar-dashboard",
 })

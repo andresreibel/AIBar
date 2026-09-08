@@ -17,6 +17,7 @@ import {
     grokUsageToPayload,
     isCompactEligible,
     isRenderCacheCompatible,
+    menuBarOutputPayload,
     loginGrok,
     nextProvider,
     normalizeBarPayload,
@@ -95,6 +96,22 @@ describe("combined provider pacing", () => {
         expect(result.providers.map(({ weeklyPace }) => weeklyPace)).toEqual([-1, null, 39]);
         expect(result.providers[1]?.payload.class).toBe("error");
         expect(result.providers[1]?.payload.accessState).toBe("unavailable");
+    });
+
+    test("matches the macOS signed weekly menu-bar summary", () => {
+        const result = menuBarOutputPayload({
+            providers: [
+                {
+                    provider: "claude",
+                    weeklyPace: null,
+                    payload: { text: "", tooltip: "Claude unavailable", accessState: "unavailable" },
+                },
+                { provider: "codex", weeklyPace: -8, payload: payload("Weekly", 20, 12) },
+                { provider: "grok", weeklyPace: 17, payload: payload("GrokBot (Weekly)", 1, 18) },
+            ],
+        });
+
+        expect(result.text).toBe("O -8%  S +17%");
     });
 
     test("retains definite lost-access providers in the dashboard aggregate", async () => {

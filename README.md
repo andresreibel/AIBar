@@ -31,7 +31,7 @@ The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI
 
 ## Display
 
-The macOS menu bar shows all weekly pace values:
+The macOS and Linux menu bars show the same weekly pace values:
 
 ```text
 A -1%  O +4%  S +39%
@@ -49,13 +49,13 @@ Only the provider letter changes color based on the percentage of that provider'
 
 The macOS popover and Linux dashboard use the same fixed Anthropic, OpenAI, SpaceXAI order while giving full card width only to providers with current or cached usage. Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. A slim **Open** control at the bottom opens one notification center for unavailable quota lines, expiring reset credits, and provider access states. On macOS, click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list.
 
-Linux retains its compact selectable bar display:
+Linux uses the same fixed signed summary:
 
 ```text
-O(1) → ◉1% ⧖1%
+A -1%  O +4%  S +39%
 ```
 
-`◉` is quota consumed, `⧖` is elapsed window time, and the arrow expresses the existing relative pacing severity. Hover shows the compact tooltip; click opens the matching three-card dashboard. In the dashboard, only the pacing difference turns green, cosmic orange, or red; red begins when actual usage is at least 10 percentage points above expected.
+Hover shows provider details; click opens the matching three-card dashboard. In the dashboard, only the pacing difference turns green, cosmic orange, or red; red begins when actual usage is at least 10 percentage points above expected.
 
 Window lengths differ by provider. Codex reports its own window length. Claude's weekly window is seven days and resets on the account's assigned weekly schedule. SpaceXAI combines Cursor's monthly model buckets with Grok's weekly percentage and next reset time. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how each provider supplies this.
 
@@ -115,7 +115,7 @@ Requirements:
 {
   "id": "aibar",
   "type": "command",
-  "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts",
+  "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts --bar",
   "interval": 1,
   "onClick": "~/.local/bin/aibar-dashboard"
 }
@@ -127,6 +127,7 @@ The dashboard command is always installed. The remaining commands use the option
 
 ```sh
 aibar-dashboard
+aibar --bar
 aibar
 aibar --toggle
 aibar --provider claude
