@@ -45,7 +45,7 @@ A -1%  O +4%  S +39%
 | Positive pace | Actual consumption is below the linear allowance |
 | `--` | Weekly pace is unavailable for that provider |
 
-Only the provider letter changes color based on the percentage of that provider's weekly limit already used: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. `S` uses the GrokBot Weekly limit, not either monthly Cursor bucket. The signed pace percentage keeps the native label color.
+On macOS, only the provider letter changes color based on the percentage of that provider's weekly limit already used: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. The Linux command widget renders the same text in the bar's native color. `S` uses the GrokBot Weekly limit, not either monthly Cursor bucket. The signed pace percentage keeps the native label color.
 
 The macOS popover and Linux dashboard use the same fixed Anthropic, OpenAI, SpaceXAI order while giving full card width only to providers with current or cached usage. Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. A slim **Open** control at the bottom opens one notification center for unavailable quota lines, expiring reset credits, and provider access states. On macOS, click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list.
 

@@ -112,6 +112,15 @@ describe("combined provider pacing", () => {
         });
 
         expect(result.text).toBe("O -8%  S +17%");
+
+        const unavailable = menuBarOutputPayload({
+            providers: [{
+                provider: "claude",
+                weeklyPace: null,
+                payload: { text: "", tooltip: "Claude unavailable", accessState: "unavailable" },
+            }],
+        });
+        expect(unavailable).toMatchObject({ text: "AIBar", accessState: "unavailable" });
     });
 
     test("retains definite lost-access providers in the dashboard aggregate", async () => {

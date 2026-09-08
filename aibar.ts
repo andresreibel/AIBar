@@ -1944,7 +1944,9 @@ export function menuBarOutputPayload(aggregate: AllProvidersPayload): BarPayload
     return {
         text: text || "AIBar",
         tooltip: aggregate.providers.map(({ payload }) => payload.tooltip).filter(Boolean).join("\n\n") || "AIBar",
-        accessState: entries.some(({ payload }) => payload.accessState == "available") ? "available" : "stale",
+        accessState: entries.some(({ payload }) => payload.accessState == "available")
+            ? "available"
+            : entries.length > 0 ? "stale" : "unavailable",
     };
 }
 

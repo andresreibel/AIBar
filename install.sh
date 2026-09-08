@@ -135,27 +135,34 @@ def collect(value):
             collect(child)
 
 collect(data)
-if not legacy:
-    raise SystemExit(0)
-if len(legacy) != 1 or current:
+if len(legacy) > 1 or len(current) > 1 or (legacy and current):
     raise SystemExit(
         f"Cannot migrate AIBar widget in {path}: "
         f"found {len(legacy)} old and {len(current)} new entries."
     )
 
-legacy[0].clear()
-legacy[0].update({
-    "id": "aibar",
-    "type": "command",
-    "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts --bar",
-    "interval": 1,
-    "onClick": "~/.local/bin/aibar-dashboard",
-})
+if legacy:
+    target = legacy[0]
+    target.clear()
+    target.update({
+        "id": "aibar",
+        "type": "command",
+        "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts --bar",
+        "interval": 1,
+        "onClick": "~/.local/bin/aibar-dashboard",
+    })
+    action = "Migrated"
+elif current and current[0].get("exec") == "~/.bun/bin/bun ~/.local/bin/aibar.ts":
+    current[0]["exec"] = "~/.bun/bin/bun ~/.local/bin/aibar.ts --bar"
+    action = "Updated"
+else:
+    raise SystemExit(0)
+
 temporary = path.with_name(path.name + ".aibar.tmp")
 temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 os.chmod(temporary, path.stat().st_mode)
 temporary.replace(path)
-print(f"Migrated widget: {path}")
+print(f"{action} widget: {path}")
 PY
 }
 
