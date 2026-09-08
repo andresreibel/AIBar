@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ClaudexBarProvider: String, CaseIterable, Codable, Sendable {
+public enum AIBarProvider: String, CaseIterable, Codable, Sendable {
     case codex
     case claude
     case grok
@@ -21,10 +21,10 @@ public enum ClaudexBarProvider: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    public static let dashboardOrder: [ClaudexBarProvider] = [.claude, .codex, .grok]
+    public static let dashboardOrder: [AIBarProvider] = [.claude, .codex, .grok]
 }
 
-public enum ClaudexBarSeverity: String, Codable, Sendable {
+public enum AIBarSeverity: String, Codable, Sendable {
     case normal
     case stale
     case warning
@@ -32,7 +32,7 @@ public enum ClaudexBarSeverity: String, Codable, Sendable {
     case error
 }
 
-public enum ClaudexBarAccessState: String, Codable, Sendable {
+public enum AIBarAccessState: String, Codable, Sendable {
     case available
     case stale
     case unavailable
@@ -58,19 +58,19 @@ public enum ClaudexBarAccessState: String, Codable, Sendable {
     }
 }
 
-public struct ClaudexBarUsagePacing: Decodable, Equatable, Sendable {
+public struct AIBarUsagePacing: Decodable, Equatable, Sendable {
     public let expectedPercentage: Double
 }
 
-public struct ClaudexBarUsageRow: Decodable, Equatable, Sendable {
+public struct AIBarUsageRow: Decodable, Equatable, Sendable {
     public let label: String
     public let percentage: Double
     public let resetText: String
-    public let severity: ClaudexBarSeverity
-    public let pacing: ClaudexBarUsagePacing?
+    public let severity: AIBarSeverity
+    public let pacing: AIBarUsagePacing?
 }
 
-public struct ClaudexBarResetCredit: Decodable, Equatable, Sendable {
+public struct AIBarResetCredit: Decodable, Equatable, Sendable {
     public let title: String
     public let expiresAt: Double?
 
@@ -86,19 +86,19 @@ public struct ClaudexBarResetCredit: Decodable, Equatable, Sendable {
     }
 }
 
-public enum ClaudexBarExpiryUrgency: Int, Comparable, Sendable {
+public enum AIBarExpiryUrgency: Int, Comparable, Sendable {
     case warning
     case critical
 
-    public static func < (lhs: ClaudexBarExpiryUrgency, rhs: ClaudexBarExpiryUrgency) -> Bool {
+    public static func < (lhs: AIBarExpiryUrgency, rhs: AIBarExpiryUrgency) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
 }
 
-public func claudexBarExpiryUrgency(
+public func aiBarExpiryUrgency(
     expiresAt: Double?,
     now: Double = Date().timeIntervalSince1970
-) -> ClaudexBarExpiryUrgency? {
+) -> AIBarExpiryUrgency? {
     guard let expiresAt, expiresAt.isFinite else { return nil }
     let remaining = expiresAt - now
     if remaining <= 7 * 24 * 60 * 60 {
@@ -111,17 +111,17 @@ public func claudexBarExpiryUrgency(
 }
 
 
-public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
+public struct AIBarPayload: Decodable, Equatable, Sendable {
     public let text: String
     public let tooltip: String
     public let classes: [String]
     public let percentage: Double?
     public let percentageLabel: String?
     public let resetCredits: Double?
-    public let resetCreditDetails: [ClaudexBarResetCredit]
+    public let resetCreditDetails: [AIBarResetCredit]
     public let updatedAt: String?
-    public let accessState: ClaudexBarAccessState
-    public let usageRows: [ClaudexBarUsageRow]
+    public let accessState: AIBarAccessState
+    public let usageRows: [AIBarUsageRow]
 
     private enum CodingKeys: String, CodingKey {
         case text
@@ -143,10 +143,10 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
         percentage: Double? = nil,
         percentageLabel: String? = nil,
         resetCredits: Double? = nil,
-        resetCreditDetails: [ClaudexBarResetCredit] = [],
+        resetCreditDetails: [AIBarResetCredit] = [],
         updatedAt: String? = nil,
-        accessState: ClaudexBarAccessState = .available,
-        usageRows: [ClaudexBarUsageRow] = []
+        accessState: AIBarAccessState = .available,
+        usageRows: [AIBarUsageRow] = []
     ) {
         self.text = text
         self.tooltip = tooltip
@@ -168,12 +168,12 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
         percentageLabel = try container.decodeIfPresent(String.self, forKey: .percentageLabel)
         resetCredits = try container.decodeIfPresent(Double.self, forKey: .resetCredits)
         resetCreditDetails = try container.decodeIfPresent(
-            [ClaudexBarResetCredit].self,
+            [AIBarResetCredit].self,
             forKey: .resetCreditDetails
         ) ?? []
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
-        accessState = try container.decode(ClaudexBarAccessState.self, forKey: .accessState)
-        usageRows = try container.decodeIfPresent([ClaudexBarUsageRow].self, forKey: .usageRows) ?? []
+        accessState = try container.decode(AIBarAccessState.self, forKey: .accessState)
+        usageRows = try container.decodeIfPresent([AIBarUsageRow].self, forKey: .usageRows) ?? []
 
         if let values = try? container.decode([String].self, forKey: .classes) {
             classes = values
@@ -184,7 +184,7 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
         }
     }
 
-    public var severity: ClaudexBarSeverity {
+    public var severity: AIBarSeverity {
         if classes.contains("error") { return .error }
         if classes.contains("critical") { return .critical }
         if classes.contains("warning") { return .warning }
@@ -194,7 +194,7 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
 
     public var macOSDetail: String {
         var lines = tooltip.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if lines.first == "ClaudexBar" {
+        if lines.first == "AIBar" {
             lines.removeFirst()
             if lines.first?.allSatisfy({ $0 == "-" }) == true {
                 lines.removeFirst()
@@ -242,10 +242,10 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
     }
 }
 
-public struct ClaudexBarProviderPayload: Decodable, Equatable, Sendable {
-    public let provider: ClaudexBarProvider
+public struct AIBarProviderPayload: Decodable, Equatable, Sendable {
+    public let provider: AIBarProvider
     public let weeklyPace: Double?
-    public let payload: ClaudexBarPayload
+    public let payload: AIBarPayload
 
     public var isCompactEligible: Bool {
         payload.accessState.isCompactEligible
@@ -262,7 +262,7 @@ public struct ClaudexBarProviderPayload: Decodable, Equatable, Sendable {
         return payload.usageRows.first { $0.label == label }?.percentage
     }
 
-    public var menuBarBadgeSeverity: ClaudexBarSeverity {
+    public var menuBarBadgeSeverity: AIBarSeverity {
         guard let weeklyUsagePercentage else { return .normal }
         if weeklyUsagePercentage >= 90 { return .critical }
         if weeklyUsagePercentage >= 75 { return .warning }
@@ -274,15 +274,15 @@ public struct ClaudexBarProviderPayload: Decodable, Equatable, Sendable {
     }
 }
 
-public struct ClaudexBarAggregatePayload: Decodable, Equatable, Sendable {
-    public let providers: [ClaudexBarProviderPayload]
+public struct AIBarAggregatePayload: Decodable, Equatable, Sendable {
+    public let providers: [AIBarProviderPayload]
 
-    public func payload(for provider: ClaudexBarProvider) -> ClaudexBarProviderPayload? {
+    public func payload(for provider: AIBarProvider) -> AIBarProviderPayload? {
         providers.first { $0.provider == provider }
     }
 
-    public var compactEntries: [ClaudexBarProviderPayload] {
-        ClaudexBarProvider.dashboardOrder.compactMap { provider in
+    public var compactEntries: [AIBarProviderPayload] {
+        AIBarProvider.dashboardOrder.compactMap { provider in
             guard let entry = payload(for: provider), entry.isCompactEligible else { return nil }
             return entry
         }
@@ -290,6 +290,6 @@ public struct ClaudexBarAggregatePayload: Decodable, Equatable, Sendable {
 
     public var menuBarText: String {
         let values = compactEntries.map(\.menuBarText)
-        return values.isEmpty ? "ClaudexBar" : values.joined(separator: "  ")
+        return values.isEmpty ? "AIBar" : values.joined(separator: "  ")
     }
 }

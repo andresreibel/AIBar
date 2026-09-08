@@ -45,7 +45,7 @@
 
 ### Changed
 
-- Kept `claudexbar.ts` as the single provider/auth/quota engine for both platforms.
+- Kept `aibar.ts` as the single provider/auth/quota engine for both platforms.
 - Limited Waybar refresh signals to Linux.
 - Simplified macOS detail presentation so headings and reset credits are not duplicated.
 - Expanded documentation for installation, display notation, credentials, architecture, and troubleshooting.

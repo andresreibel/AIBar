@@ -1,6 +1,6 @@
 APP_VERSION := 0.3.0
 APP_BUILD := 1
-APP_NAME := ClaudexBar
+APP_NAME := AIBar
 APP_BUNDLE := .build/$(APP_NAME).app
 BUN ?= $(shell command -v bun 2>/dev/null)
 
@@ -15,7 +15,7 @@ check-bun:
 test: check-bun
 	swift test
 	$(BUN) test
-	$(BUN) build claudexbar.ts --target=bun --outdir .build/bun-check
+	$(BUN) build aibar.ts --target=bun --outdir .build/bun-check
 
 release:
 	swift build -c release
@@ -40,8 +40,8 @@ icon:
 app: release icon
 	rm -rf $(APP_BUNDLE)
 	mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources
-	cp .build/release/claudexbar-macos $(APP_BUNDLE)/Contents/MacOS/ClaudexBar
-	cp claudexbar.ts $(APP_BUNDLE)/Contents/Resources/claudexbar.ts
+	cp .build/release/aibar-macos $(APP_BUNDLE)/Contents/MacOS/AIBar
+	cp aibar.ts $(APP_BUNDLE)/Contents/Resources/aibar.ts
 	cp .build/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns
 	printf '%s\n' \
 		'<?xml version="1.0" encoding="UTF-8"?>' \
@@ -49,13 +49,13 @@ app: release icon
 		'<plist version="1.0">' \
 		'<dict>' \
 		'  <key>CFBundleExecutable</key>' \
-		'  <string>ClaudexBar</string>' \
+		'  <string>AIBar</string>' \
 		'  <key>CFBundleIdentifier</key>' \
-		'  <string>com.andresreibel.claudexbar</string>' \
+		'  <string>com.andresreibel.aibar</string>' \
 		'  <key>CFBundleName</key>' \
-		'  <string>ClaudexBar</string>' \
+		'  <string>AIBar</string>' \
 		'  <key>CFBundleDisplayName</key>' \
-		'  <string>ClaudexBar</string>' \
+		'  <string>AIBar</string>' \
 		'  <key>CFBundleIconFile</key>' \
 		'  <string>AppIcon</string>' \
 		'  <key>CFBundlePackageType</key>' \
@@ -70,19 +70,19 @@ app: release icon
 		'  <true/>' \
 		'</dict>' \
 		'</plist>' > $(APP_BUNDLE)/Contents/Info.plist
-	codesign --force --deep --sign - --identifier com.andresreibel.claudexbar $(APP_BUNDLE)
+	codesign --force --deep --sign - --identifier com.andresreibel.aibar $(APP_BUNDLE)
 
 open-app: app
 	open $(APP_BUNDLE)
 
 install: app
-	pkill -x ClaudexBar 2>/dev/null || true
-	rm -rf /Applications/ClaudexBar.app
-	cp -R $(APP_BUNDLE) /Applications/ClaudexBar.app
+	pkill -x AIBar 2>/dev/null || true
+	rm -rf /Applications/AIBar.app
+	cp -R $(APP_BUNDLE) /Applications/AIBar.app
 
 uninstall:
-	pkill -x ClaudexBar 2>/dev/null || true
-	rm -rf /Applications/ClaudexBar.app
+	pkill -x AIBar 2>/dev/null || true
+	rm -rf /Applications/AIBar.app
 
 clean:
 	rm -rf .build

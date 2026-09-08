@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { dirname } from "node:path";
 
 const HOME = homedir();
-const STATE_DIR = `${HOME}/.codex/claudexbar`;
+const STATE_DIR = `${HOME}/.codex/aibar`;
 const PROVIDER_STATE_PATH = `${STATE_DIR}/provider`;
 
 const CLAUDE_PROVIDER = "claude";
@@ -450,7 +450,7 @@ export function stripLegacyBarCountdown(text: string): string {
 
 export function compactLegacyTooltip(tooltip: string): string {
     return tooltip
-        .replace(/^ClaudexBar\n-+\n\n?/, "")
+        .replace(/^AIBar\n-+\n\n?/, "")
         .replace(/^(Session|Weekly):\s*(\d+(?:\.\d+)?%)\s*(?:\([^)]*\))?\n\s*Resets in\s*(.+)$/gm,
             (_, label: string, percentage: string, reset: string) =>
                 `${label == "Weekly" ? "Week" : label} ${percentage} · reset ${reset}`)
@@ -961,7 +961,7 @@ async function fetchCodexUsageViaOAuth(): Promise<CodexUsageSnapshot> {
     const headers = new Headers();
     headers.set("Authorization", `Bearer ${auth.accessToken}`);
     headers.set("Accept", "application/json");
-    headers.set("User-Agent", "ClaudexBar");
+    headers.set("User-Agent", "AIBar");
     if (auth.accountId) {
         headers.set("ChatGPT-Account-Id", auth.accountId);
     }
@@ -1084,7 +1084,7 @@ async function fetchCodexRateLimitsViaRpc(): Promise<JSONRecord> {
             fail(new Error(msg));
         });
 
-        send({ id: 1, method: "initialize", params: { clientInfo: { name: "claudexbar", version: "0.2.0" } } });
+        send({ id: 1, method: "initialize", params: { clientInfo: { name: "aibar", version: "0.2.0" } } });
     });
 }
 
@@ -1810,7 +1810,7 @@ async function fetchClaudePayload(): Promise<BarPayload> {
 
 function errorPayload(message: string, accessState: ProviderAccessState = "unavailable"): BarPayload {
     return stampPayload({
-        text: "⚠ cdx",
+        text: "⚠ AIBar",
         tooltip: message,
         accessState,
         class: "error",
@@ -1826,7 +1826,7 @@ export function weeklyPacePercentagePoints(provider: Provider, payload: BarPaylo
     return Math.round(weekly.pacing.expectedPercentage - weekly.percentage);
 }
 
-async function renderClaudex(provider: Provider): Promise<BarPayload> {
+async function renderAIBar(provider: Provider): Promise<BarPayload> {
     if (provider == CLAUDE_PROVIDER) {
         try {
             return await fetchClaudePayload();
@@ -1878,7 +1878,7 @@ async function renderProviderPayload(provider: Provider): Promise<BarPayload> {
     if (cached) {
         return cached;
     }
-    const payload = await renderClaudex(provider);
+    const payload = await renderAIBar(provider);
     await saveRenderCache(provider, payload);
     return payload;
 }
@@ -1923,7 +1923,7 @@ export async function renderAllProviders(
 // up a fresh cache instead of showing the old provider while a live fetch runs.
 async function primeRenderCache(provider: Provider): Promise<void> {
     try {
-        const payload = await renderClaudex(provider);
+        const payload = await renderAIBar(provider);
         await saveRenderCache(provider, payload);
     } catch {
         // best effort; the periodic render will retry
@@ -1977,6 +1977,6 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
     main().catch(() => {
-        console.log(JSON.stringify(errorPayload("ClaudexBar usage unavailable.")));
+        console.log(JSON.stringify(errorPayload("AIBar usage unavailable.")));
     });
 }

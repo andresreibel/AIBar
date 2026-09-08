@@ -1,5 +1,5 @@
 import AppKit
-import ClaudexBarCore
+import AIBarCore
 import Combine
 import Foundation
 import SwiftUI
@@ -21,11 +21,11 @@ private enum EngineError: LocalizedError {
         case .missingBun:
             "Bun was not found. Install Bun at ~/.bun/bin/bun."
         case .missingScript:
-            "The shared claudexbar.ts engine was not found."
+            "The shared aibar.ts engine was not found."
         case .failed(let message):
             message
         case .invalidOutput(let output):
-            "ClaudexBar returned invalid output: \(output)"
+            "AIBar returned invalid output: \(output)"
         }
     }
 }
@@ -39,7 +39,7 @@ private struct EngineRunner: Sendable {
         let home = FileManager.default.homeDirectoryForCurrentUser
 
         let bunCandidates = [
-            environment["CLAUDEXBAR_BUN"].map(URL.init(fileURLWithPath:)),
+            environment["AIBAR_BUN"].map(URL.init(fileURLWithPath:)),
             home.appendingPathComponent(".bun/bin/bun"),
             URL(fileURLWithPath: "/opt/homebrew/bin/bun"),
             URL(fileURLWithPath: "/usr/local/bin/bun")
@@ -50,11 +50,11 @@ private struct EngineRunner: Sendable {
         }
 
         let scriptCandidates = [
-            environment["CLAUDEXBAR_SCRIPT"].map(URL.init(fileURLWithPath:)),
-            Bundle.main.resourceURL?.appendingPathComponent("claudexbar.ts"),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("claudexbar.ts"),
-            home.appendingPathComponent("code/ClaudexBar/claudexbar.ts"),
-            home.appendingPathComponent("Code/ClaudexBar/claudexbar.ts")
+            environment["AIBAR_SCRIPT"].map(URL.init(fileURLWithPath:)),
+            Bundle.main.resourceURL?.appendingPathComponent("aibar.ts"),
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("aibar.ts"),
+            home.appendingPathComponent("code/AIBar/aibar.ts"),
+            home.appendingPathComponent("Code/AIBar/aibar.ts")
         ].compactMap { $0 }
 
         guard let scriptURL = scriptCandidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
@@ -64,19 +64,19 @@ private struct EngineRunner: Sendable {
         return EngineRunner(bunURL: bunURL, scriptURL: scriptURL)
     }
 
-    func payloads() async throws -> ClaudexBarAggregatePayload {
+    func payloads() async throws -> AIBarAggregatePayload {
         let output = try await run(arguments: ["--all"])
         guard let data = output.data(using: .utf8) else {
             throw EngineError.invalidOutput(output)
         }
         do {
-            return try JSONDecoder().decode(ClaudexBarAggregatePayload.self, from: data)
+            return try JSONDecoder().decode(AIBarAggregatePayload.self, from: data)
         } catch {
             throw EngineError.invalidOutput(output)
         }
     }
 
-    func reconnect(_ provider: ClaudexBarProvider) async throws {
+    func reconnect(_ provider: AIBarProvider) async throws {
         if provider == .grok {
             let output = try await run(arguments: ["--login", "grok"])
             guard output == "grok" else {
@@ -136,7 +136,7 @@ private struct EngineRunner: Sendable {
             do {
                 try process.run()
             } catch {
-                throw EngineError.failed("Could not start ClaudexBar: \(error.localizedDescription)")
+                throw EngineError.failed("Could not start AIBar: \(error.localizedDescription)")
             }
 
             process.waitUntilExit()
@@ -146,7 +146,7 @@ private struct EngineRunner: Sendable {
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
             guard process.terminationStatus == 0 else {
-                throw EngineError.failed(errorOutput.isEmpty ? "ClaudexBar exited with status \(process.terminationStatus)." : errorOutput)
+                throw EngineError.failed(errorOutput.isEmpty ? "AIBar exited with status \(process.terminationStatus)." : errorOutput)
             }
             return output
         }.value
@@ -154,8 +154,8 @@ private struct EngineRunner: Sendable {
 }
 
 @MainActor
-private final class ClaudexBarModel: ObservableObject {
-    @Published var aggregate: ClaudexBarAggregatePayload?
+private final class AIBarModel: ObservableObject {
+    @Published var aggregate: AIBarAggregatePayload?
     @Published var errorMessage: String?
     @Published var isRefreshing = false
     @Published var hasLoaded = false
@@ -176,9 +176,9 @@ private final class ClaudexBarModel: ObservableObject {
 
     var statusTooltip: String {
         guard let aggregate else {
-            return errorMessage ?? "ClaudexBar"
+            return errorMessage ?? "AIBar"
         }
-        return ClaudexBarProvider.dashboardOrder.map { provider in
+        return AIBarProvider.dashboardOrder.map { provider in
             guard let entry = aggregate.payload(for: provider) else {
                 return "\(provider.displayName): Usage unavailable"
             }
@@ -189,7 +189,7 @@ private final class ClaudexBarModel: ObservableObject {
         }.joined(separator: "\n")
     }
 
-    func payload(for provider: ClaudexBarProvider) -> ClaudexBarProviderPayload? {
+    func payload(for provider: AIBarProvider) -> AIBarProviderPayload? {
         aggregate?.payload(for: provider)
     }
 
@@ -211,7 +211,7 @@ private final class ClaudexBarModel: ObservableObject {
         hasLoaded = true
     }
 
-    func reconnect(_ provider: ClaudexBarProvider) async {
+    func reconnect(_ provider: AIBarProvider) async {
         guard !isRefreshing else { return }
         let startedAt = DispatchTime.now().uptimeNanoseconds
         isRefreshing = true
@@ -250,11 +250,11 @@ private struct DashboardNotice: Identifiable {
     let title: String
     let message: String
     let tone: DashboardNoticeTone
-    let loginProvider: ClaudexBarProvider?
+    let loginProvider: AIBarProvider?
 }
 
-private struct ClaudexBarMenu: View {
-    @ObservedObject var model: ClaudexBarModel
+private struct AIBarMenu: View {
+    @ObservedObject var model: AIBarModel
     @State private var showsResetCreditExpiries = false
     @State private var showsUsageGuide = false
     @State private var showsNotifications = false
@@ -263,7 +263,7 @@ private struct ClaudexBarMenu: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("ClaudexBar")
+                Text("AIBar")
                     .font(.headline)
                 Button {
                     showsUsageGuide.toggle()
@@ -390,9 +390,9 @@ private struct ClaudexBarMenu: View {
         }
     }
 
-    private var accessWarningProviders: [ClaudexBarProvider] {
+    private var accessWarningProviders: [AIBarProvider] {
         guard let aggregate = model.aggregate else { return [] }
-        return ClaudexBarProvider.dashboardOrder.filter {
+        return AIBarProvider.dashboardOrder.filter {
             aggregate.payload(for: $0)?.isCompactEligible != true
         }
     }
@@ -410,7 +410,7 @@ private struct ClaudexBarMenu: View {
             )
         }
 
-        for provider in ClaudexBarProvider.dashboardOrder {
+        for provider in AIBarProvider.dashboardOrder {
             guard let payload = model.payload(for: provider)?.payload,
                   payload.accessState.isCompactEligible else {
                 continue
@@ -426,7 +426,7 @@ private struct ClaudexBarMenu: View {
                 ))
             }
             for (index, credit) in payload.resetCreditDetails.enumerated() {
-                guard let urgency = claudexBarExpiryUrgency(expiresAt: credit.expiresAt) else { continue }
+                guard let urgency = aiBarExpiryUrgency(expiresAt: credit.expiresAt) else { continue }
                 notices.append(DashboardNotice(
                     id: "credit-\(provider.rawValue)-\(index)-\(credit.expiresAt ?? 0)",
                     title: "\(provider.displayName) reset credit",
@@ -504,14 +504,14 @@ private struct ClaudexBarMenu: View {
         }
     }
 
-    private func resetCreditUrgency(_ payload: ClaudexBarPayload) -> ClaudexBarExpiryUrgency? {
+    private func resetCreditUrgency(_ payload: AIBarPayload) -> AIBarExpiryUrgency? {
         payload.resetCreditDetails.compactMap {
-            claudexBarExpiryUrgency(expiresAt: $0.expiresAt)
+            aiBarExpiryUrgency(expiresAt: $0.expiresAt)
         }.max()
     }
 
     @ViewBuilder
-    private func providerColumn(_ provider: ClaudexBarProvider) -> some View {
+    private func providerColumn(_ provider: AIBarProvider) -> some View {
         let entry = model.payload(for: provider)
         let payload = entry?.payload
 
@@ -605,7 +605,7 @@ private struct ClaudexBarMenu: View {
                         if showsResetCreditExpiries {
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(Array(payload.resetCreditDetails.enumerated()), id: \.offset) { _, credit in
-                                    let urgency = claudexBarExpiryUrgency(expiresAt: credit.expiresAt)
+                                    let urgency = aiBarExpiryUrgency(expiresAt: credit.expiresAt)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(credit.title)
                                             .fontWeight(.semibold)
@@ -697,12 +697,12 @@ private struct ClaudexBarMenu: View {
 
     private func unavailableQuotaExplanation(
         _ quota: String,
-        provider: ClaudexBarProvider
+        provider: AIBarProvider
     ) -> String {
         "\(provider.displayName) did not provide \(quota.lowercased()) usage, so that quota is not shown."
     }
 
-    private func accessStateColor(_ state: ClaudexBarAccessState) -> Color {
+    private func accessStateColor(_ state: AIBarAccessState) -> Color {
         switch state {
         case .loginRequired, .subscriptionExpired: .red
         case .stale, .unavailable: cosmicOrange
@@ -710,7 +710,7 @@ private struct ClaudexBarMenu: View {
         }
     }
 
-    private func usageColor(for severity: ClaudexBarSeverity) -> Color {
+    private func usageColor(for severity: AIBarSeverity) -> Color {
         switch severity {
         case .critical, .error: .red
         case .warning: cosmicOrange
@@ -723,7 +723,7 @@ private struct ClaudexBarMenu: View {
         label: String,
         percentage: Double,
         resetText: String?,
-        pacing: ClaudexBarUsagePacing?,
+        pacing: AIBarUsagePacing?,
         tint: Color
     ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -859,8 +859,8 @@ private struct ClaudexBarMenu: View {
 }
 
 @MainActor
-private final class ClaudexBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
-    private let model = ClaudexBarModel()
+private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+    private let model = AIBarModel()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private var lastStatusTitle = "A --  O --  S --"
@@ -872,7 +872,7 @@ private final class ClaudexBarAppDelegate: NSObject, NSApplicationDelegate, NSPo
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView: ClaudexBarMenu(model: model))
+        popover.contentViewController = NSHostingController(rootView: AIBarMenu(model: model))
 
         if let button = statusItem.button {
             button.target = self
@@ -904,7 +904,7 @@ private final class ClaudexBarAppDelegate: NSObject, NSApplicationDelegate, NSPo
     }
 
     private func updateStatusItem(
-        aggregate: ClaudexBarAggregatePayload?,
+        aggregate: AIBarAggregatePayload?,
         errorMessage: String?
     ) {
         guard let button = statusItem.button else { return }
@@ -948,13 +948,13 @@ private final class ClaudexBarAppDelegate: NSObject, NSApplicationDelegate, NSPo
         }
         button.attributedTitle = attributedTitle
         button.toolTip = model.statusTooltip
-        button.setAccessibilityLabel("ClaudexBar, \(title)")
+        button.setAccessibilityLabel("AIBar, \(title)")
     }
 }
 
 @main
-private struct ClaudexBarApp: App {
-    @NSApplicationDelegateAdaptor(ClaudexBarAppDelegate.self) private var appDelegate
+private struct AIBarApp: App {
+    @NSApplicationDelegateAdaptor(AIBarAppDelegate.self) private var appDelegate
 
     var body: some Scene {
         Settings {

@@ -1,17 +1,17 @@
 # Architecture
 
-ClaudexBar is one product with a shared provider engine and thin platform adapters.
+AIBar is one product with a shared provider engine and thin platform adapters.
 
 ## Shared engine
 
-`claudexbar.ts` owns:
+`aibar.ts` owns:
 
 - Codex and Claude credential loading, plus SpaceXAI PKCE sign-in and private credential storage.
 - Provider usage requests and Codex RPC fallback.
 - Session and weekly quota parsing.
 - Pacing, warning state, reset countdowns, and reset-credit formatting.
 - Claude caching and rate-limit backoff.
-- Provider selection under `~/.codex/claudexbar/`.
+- Provider selection under `~/.codex/aibar/`.
 
 It emits a JSON payload consumed by the Quattro command widget:
 
@@ -38,7 +38,7 @@ It emits a JSON payload consumed by the Quattro command widget:
 
 `resetCredits` remains the authoritative available count from the OpenAI usage response. After a successful OAuth usage read, the engine asks the supported local Codex app-server `account/rateLimits/read` method for optional `resetCreditDetails`. Each emitted detail contains only the backend display title and optional Unix-seconds expiry; account, credit, grant, and description fields are never retained. The macOS Reset credits row exposes the localized title and expiry list on hover and click. Both adapters color the count cosmic orange within 14 days of the earliest expiry and red within 7 days, and add each qualifying credit to the bottom notification center. Older/count-only Codex versions and failed enrichment return an empty list without hiding the count or failing quota refresh.
 
-The macOS app invokes `claudexbar.ts --all`. That additive response wraps one unchanged payload per provider in fixed Anthropic, OpenAI, SpaceXAI order and includes `weeklyPace`, calculated as expected weekly percentage minus actual weekly percentage. Each provider reads or refreshes its own existing cache independently. The normal no-argument engine output and persisted provider selection remain unchanged for Linux.
+The macOS app invokes `aibar.ts --all`. That additive response wraps one unchanged payload per provider in fixed Anthropic, OpenAI, SpaceXAI order and includes `weeklyPace`, calculated as expected weekly percentage minus actual weekly percentage. Each provider reads or refreshes its own existing cache independently. The normal no-argument engine output and persisted provider selection remain unchanged for Linux.
 
 ## Quota windows
 
@@ -58,20 +58,20 @@ Reset-credit urgency is presentation-only and time-based: no color outside 14 da
 
 ## Linux adapter
 
-Linux installs the shared engine into `~/.local/bin/claudexbar.ts` and the thin GTK 4 adapter into `~/.local/bin/claudexbar-dashboard`. Omarchy Quattro runs the engine as its built-in command widget on a short interval and reads its five-minute render cache. Its compact plain-text tooltip holds the selected provider's session, weekly, reset, and refresh details.
+Linux installs the shared engine into `~/.local/bin/aibar.ts` and the thin GTK 4 adapter into `~/.local/bin/aibar-dashboard`. Omarchy Quattro runs the engine as its built-in command widget on a short interval and reads its five-minute render cache. Its compact plain-text tooltip holds the selected provider's session, weekly, reset, and refresh details.
 
-Clicking the bar launches the GTK dashboard. It invokes `claudexbar.ts --all`, decodes the same fixed provider order and payload fields as macOS, and renders full cards only for providers with current or cached usage. The adapter owns presentation of the slim notification center but does not duplicate authentication, quota, pacing, severity, or cache classification. On Wayland, optional `gtk4-layer-shell` anchors the dashboard as a top-right overlay; otherwise GTK presents a normal window. A second launch closes the existing dashboard instance.
+Clicking the bar launches the GTK dashboard. It invokes `aibar.ts --all`, decodes the same fixed provider order and payload fields as macOS, and renders full cards only for providers with current or cached usage. The adapter owns presentation of the slim notification center but does not duplicate authentication, quota, pacing, severity, or cache classification. On Wayland, optional `gtk4-layer-shell` anchors the dashboard as a top-right overlay; otherwise GTK presents a normal window. A second launch closes the existing dashboard instance.
 
 ## macOS adapter
 
-![ClaudexBar macOS dashboard on a MacBook](../assets/claudexbar-macos.png)
+![AIBar macOS dashboard on a MacBook](../assets/aibar-macos.png)
 
 The Swift package contains:
 
-- `ClaudexBarCore`: single-provider and aggregate payload decoding, provider metadata, signed pace formatting, severity mapping, reset-credit expiry urgency, and macOS-only presentation cleanup.
-- `claudexbar-macos`: native SwiftUI content hosted in an `NSPopover`, a variable-width `NSStatusItem`, refresh scheduling, SpaceXAI sign-in, and shared-engine process execution.
+- `AIBarCore`: single-provider and aggregate payload decoding, provider metadata, signed pace formatting, severity mapping, reset-credit expiry urgency, and macOS-only presentation cleanup.
+- `aibar-macos`: native SwiftUI content hosted in an `NSPopover`, a variable-width `NSStatusItem`, refresh scheduling, SpaceXAI sign-in, and shared-engine process execution.
 
-The packaged app bundles `claudexbar.ts` under `Contents/Resources`. The Swift app locates Bun, invokes `--all` off the main actor, decodes the aggregate payload, and renders all providers. Provider logic is not duplicated in Swift.
+The packaged app bundles `aibar.ts` under `Contents/Resources`. The Swift app locates Bun, invokes `--all` off the main actor, decodes the aggregate payload, and renders all providers. Provider logic is not duplicated in Swift.
 
 The menu bar displays signed weekly pace for eligible Anthropic, OpenAI, and SpaceXAI accounts. The macOS popover and Linux dashboard give the full card area only to providers with current or cached usage; provider selection remains a Linux-only interaction. Comparable rows place Expected above Actual, show a compact signed `expected − actual` delta, and color only the non-overlapping meter segment green, orange, or red. Both dashboards collect unavailable quota lines, qualifying reset-credit expiries, and provider access states into one slim notification control at the bottom instead of placing persistent warnings inside usage cards.
 
@@ -82,7 +82,7 @@ Every normalized provider payload has one engine-owned `accessState`: `available
 - Codex uses `~/.codex/auth.json`.
 - Claude uses `~/.claude/.credentials.json` when available.
 - On macOS, Claude falls back to the `Claude Code-credentials` Keychain item.
-- SpaceXAI uses ClaudexBar-owned `~/.codex/claudexbar/grok-auth.json`, written atomically with mode `0600` after an explicit PKCE sign-in. The browser opens only for that user action; normal refreshes never initiate login. Grok usage requests have a 10-second timeout, and missing or rejected credentials require explicit reconnection.
+- SpaceXAI uses AIBar-owned `~/.codex/aibar/grok-auth.json`, written atomically with mode `0600` after an explicit PKCE sign-in. The browser opens only for that user action; normal refreshes never initiate login. Grok usage requests have a 10-second timeout, and missing or rejected credentials require explicit reconnection.
 
 Credential values must never appear in tests, logs, screenshots, documentation, or Git history.
 

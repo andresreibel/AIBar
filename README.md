@@ -1,18 +1,18 @@
-# ClaudexBar
+# AIBar
 
 > [!IMPORTANT]
-> **ClaudexBar works on both macOS and Linux.** Run the same `./install.sh` command and it automatically installs the correct version for your operating system.
+> **AIBar works on both macOS and Linux.** Run the same `./install.sh` command and it automatically installs the correct version for your operating system.
 
 | Platform | What gets installed |
 | --- | --- |
-| **macOS** | Native SwiftUI menu-bar app at `/Applications/ClaudexBar.app` |
+| **macOS** | Native SwiftUI menu-bar app at `/Applications/AIBar.app` |
 | **Linux** | Shared engine and GTK dashboard under `~/.local/bin`, used by an Omarchy Quattro command widget |
 
 Both versions show the same Codex, Claude, and SpaceXAI (Grok) subscription limits in matching three-card dashboards. One shared TypeScript engine owns authentication, quota fetching, pacing, reset countdowns, caching, and fallbacks; each platform keeps a thin native desktop adapter.
 
 ### macOS menu-bar app
 
-![ClaudexBar macOS dashboard on a MacBook](assets/claudexbar-macos.png)
+![AIBar macOS dashboard on a MacBook](assets/aibar-macos.png)
 
 The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI (Grok) simultaneously in three compact columns. Each column keeps its quota bars, reset countdowns, provider-specific details, and refresh time. The menu bar shows every provider's signed weekly pace at a glance.
 
@@ -64,15 +64,23 @@ Window lengths differ by provider. Codex reports its own window length. Claude's
 Clone the repository and run the same installer on either platform:
 
 ```sh
-git clone https://github.com/andresreibel/ClaudexBar.git
-cd ClaudexBar
+git clone https://github.com/andresreibel/AIBar.git
+cd AIBar
 ./install.sh
 ```
 
 The installer uses `uname`:
 
-- macOS builds and installs `/Applications/ClaudexBar.app`.
-- Linux installs `~/.local/bin/claudexbar.ts`.
+- macOS builds and installs `/Applications/AIBar.app`.
+- Linux installs `~/.local/bin/aibar.ts`.
+
+When upgrading an existing installation, the installer moves preserved credentials and notification state into `~/.codex/aibar`, clears stale render caches, updates the Omarchy widget, and removes the replaced app, commands, and shell helper.
+
+On Linux, pass `--bashrc` to also install the short `aibar` shell command:
+
+```sh
+./install.sh --bashrc
+```
 
 ### macOS
 
@@ -87,7 +95,7 @@ Requirements:
 xcode-select --install  # only when Swift is missing
 brew install bun librsvg
 ./install.sh
-open /Applications/ClaudexBar.app
+open /Applications/AIBar.app
 ```
 
 The app is currently built from source and ad-hoc signed. There is no notarized downloadable build yet.
@@ -97,45 +105,45 @@ The app is currently built from source and ad-hoc signed. There is no notarized 
 Requirements:
 
 - Python 3, GTK 4, and PyGObject.
-- `gtk4-layer-shell` is recommended on Wayland so the dashboard opens as a top-right popover; without it, ClaudexBar uses a normal GTK window.
+- `gtk4-layer-shell` is recommended on Wayland so the dashboard opens as a top-right popover; without it, AIBar uses a normal GTK window.
 
-![ClaudexBar Linux dashboard on an X1 running Omarchy Quattro](assets/claudexbar-linux-x1.png)
+![AIBar Linux dashboard on an X1 running Omarchy Quattro](assets/aibar-linux-x1.png)
 
-`./install.sh` installs the shared engine and `~/.local/bin/claudexbar-dashboard`. On Omarchy Quattro, add them as a command widget in `~/.config/omarchy/shell.json`:
+`./install.sh` installs the shared engine and `~/.local/bin/aibar-dashboard`. On Omarchy Quattro, add them as a command widget in `~/.config/omarchy/shell.json`:
 
 ```json
 {
-  "id": "claudexbar",
+  "id": "aibar",
   "type": "command",
-  "exec": "~/.bun/bin/bun ~/.local/bin/claudexbar.ts",
+  "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts",
   "interval": 1,
-  "onClick": "~/.local/bin/claudexbar-dashboard"
+  "onClick": "~/.local/bin/aibar-dashboard"
 }
 ```
 
 The one-second bar interval reads the local render cache; live usage requests remain limited to about once per five minutes. Hover for compact details and click to open or close the three-card dashboard. Initial load and every manual refresh hide the cards behind a spinner for at least one second, then reveal all provider data together. This uses Quattro's built-in command widget—no custom QML or plugin is required.
 
-Commands:
+The dashboard command is always installed. The remaining commands use the optional `aibar` shell helper installed by `./install.sh --bashrc`:
 
 ```sh
-claudexbar-dashboard
-claudex
-claudex --toggle
-claudex --provider claude
-claudex --provider codex
-claudex --provider grok
-claudex --login grok
+aibar-dashboard
+aibar
+aibar --toggle
+aibar --provider claude
+aibar --provider codex
+aibar --provider grok
+aibar --login grok
 ```
 
 ## Authentication and state
 
-ClaudexBar keeps credentials outside the repository and application bundle. It reuses existing Codex and Claude CLI credentials and stores its own Grok sign-in:
+AIBar keeps credentials outside the repository and application bundle. It reuses existing Codex and Claude CLI credentials and stores its own Grok sign-in:
 
 - Codex: `~/.codex/auth.json`.
 - Claude on Linux: `~/.claude/.credentials.json`.
 - Claude on macOS: the credentials file when present, otherwise the `Claude Code-credentials` Keychain item.
-- SpaceXAI: `~/.codex/claudexbar/grok-auth.json`, created with mode `0600` only after the explicit **Login** action.
-- Linux provider selection and per-provider caches: `~/.codex/claudexbar/`.
+- SpaceXAI: `~/.codex/aibar/grok-auth.json`, created with mode `0600` only after the explicit **Login** action.
+- Linux provider selection and per-provider caches: `~/.codex/aibar/`.
 
 The shared engine may refresh existing Codex or Claude OAuth credentials when required. SpaceXAI uses its own explicit PKCE sign-in and never opens a browser during normal refresh. Both dashboards use the same provider states: **Login required** shows a **Login** action, **Subscription expired** shows no false login action, **Usage unavailable** preserves ordinary refresh behavior, and temporary Claude fallback is labelled as cached usage. Available and cached providers receive the full dashboard area. Other states appear only in the slim bottom notification center and are omitted from the macOS menu-bar and Omarchy counters. **Clear notifications** hides the current provider, quota, and expiring-credit notices until their content changes. Anthropic login state uses the documented `claude auth status` exit contract; the undocumented usage endpoint and observed `subscriptionType` field are not treated as subscription-entitlement signals. Bare `401`/`402`/`403`, network, rate-limit, and malformed-response failures are never called subscription expiry. See [troubleshooting](docs/TROUBLESHOOTING.md).
 
@@ -145,7 +153,7 @@ The shared engine may refresh existing Codex or Claude OAuth credentials when re
 make test
 make app
 make install
-open /Applications/ClaudexBar.app
+open /Applications/AIBar.app
 ```
 
 Verification covers Swift payload decoding, macOS presentation, Keychain decoding, TypeScript compilation, packaging, and the installed bundle.

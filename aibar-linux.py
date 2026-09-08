@@ -12,13 +12,13 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-if os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("CLAUDEXBAR_LAYER_REEXEC"):
+if os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("AIBAR_LAYER_REEXEC"):
     layer_shell = ctypes.util.find_library("gtk4-layer-shell")
     if layer_shell:
         environment = os.environ.copy()
         preload = environment.get("LD_PRELOAD")
         environment["LD_PRELOAD"] = f"{layer_shell}:{preload}" if preload else layer_shell
-        environment["CLAUDEXBAR_LAYER_REEXEC"] = "1"
+        environment["AIBAR_LAYER_REEXEC"] = "1"
         os.execvpe(sys.executable, [sys.executable, *sys.argv], environment)
 
 try:
@@ -28,7 +28,7 @@ try:
     from gi.repository import Gio, GLib, Gtk
 except (ImportError, ValueError) as error:
     raise SystemExit(
-        "ClaudexBar dashboard requires GTK 4 and PyGObject. "
+        "AIBar dashboard requires GTK 4 and PyGObject. "
         "Install python-gobject and gtk4 for your distribution."
     ) from error
 
@@ -52,14 +52,14 @@ ACCESS_PRESENTATION = {
     "subscription_expired": ("Subscription expired", False, True),
 }
 
-NOTIFICATION_DISMISSAL_PATH = Path.home() / ".codex" / "claudexbar" / "dismissed-notifications"
+NOTIFICATION_DISMISSAL_PATH = Path.home() / ".codex" / "aibar" / "dismissed-notifications"
 
 CSS = """
-window.claudexbar-window {
+window.aibar-window {
   background: rgba(22, 22, 25, 0.97);
   color: #f4f4f5;
 }
-.claudexbar-root {
+.aibar-root {
   padding: 16px 16px 24px;
 }
 .app-title {
@@ -253,14 +253,14 @@ popover.notification-popover > contents {
 
 
 def find_bun():
-    override = os.environ.get("CLAUDEXBAR_BUN")
+    override = os.environ.get("AIBAR_BUN")
     candidates = [override, str(Path.home() / ".bun/bin/bun"), shutil.which("bun")]
     return next((candidate for candidate in candidates if candidate and os.access(candidate, os.X_OK)), None)
 
 
 def find_engine():
-    override = os.environ.get("CLAUDEXBAR_ENGINE")
-    candidates = [override, str(Path(__file__).with_name("claudexbar.ts"))]
+    override = os.environ.get("AIBAR_ENGINE")
+    candidates = [override, str(Path(__file__).with_name("aibar.ts"))]
     return next((candidate for candidate in candidates if candidate and Path(candidate).is_file()), None)
 
 
@@ -583,7 +583,7 @@ class ProviderCard(Gtk.Box):
 
 class DashboardWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="ClaudexBar")
+        super().__init__(application=app, title="AIBar")
         self.app = app
         self.cards = {}
         self.refreshing = False
@@ -596,12 +596,12 @@ class DashboardWindow(Gtk.ApplicationWindow):
         self.latest_entries = {}
         self.set_default_size(620, 450)
         self.set_resizable(False)
-        self.add_css_class("claudexbar-window")
+        self.add_css_class("aibar-window")
 
         if Gtk4LayerShell is not None:
             self.set_decorated(False)
             Gtk4LayerShell.init_for_window(self)
-            Gtk4LayerShell.set_namespace(self, "claudexbar-dashboard")
+            Gtk4LayerShell.set_namespace(self, "aibar-dashboard")
             Gtk4LayerShell.set_layer(self, Gtk4LayerShell.Layer.OVERLAY)
             Gtk4LayerShell.set_anchor(self, Gtk4LayerShell.Edge.TOP, True)
             Gtk4LayerShell.set_anchor(self, Gtk4LayerShell.Edge.RIGHT, True)
@@ -610,11 +610,11 @@ class DashboardWindow(Gtk.ApplicationWindow):
             Gtk4LayerShell.set_keyboard_mode(self, Gtk4LayerShell.KeyboardMode.ON_DEMAND)
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        root.add_css_class("claudexbar-root")
+        root.add_css_class("aibar-root")
         self.set_child(root)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        title = Gtk.Label(label="ClaudexBar", xalign=0)
+        title = Gtk.Label(label="AIBar", xalign=0)
         title.add_css_class("app-title")
         header.append(title)
         header.append(info_menu(
@@ -723,14 +723,14 @@ class DashboardWindow(Gtk.ApplicationWindow):
             self.finish_after_minimum_delay(
                 started_at,
                 self.finish_error,
-                "Bun was not found. Set CLAUDEXBAR_BUN or install Bun.",
+                "Bun was not found. Set AIBAR_BUN or install Bun.",
             )
             return
         if engine is None:
             self.finish_after_minimum_delay(
                 started_at,
                 self.finish_error,
-                "claudexbar.ts was not found beside the dashboard.",
+                "aibar.ts was not found beside the dashboard.",
             )
             return
         try:
@@ -952,7 +952,7 @@ class DashboardWindow(Gtk.ApplicationWindow):
 
 class DashboardApp(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id="com.github.andresreibel.ClaudexBar.Linux")
+        super().__init__(application_id="com.github.andresreibel.AIBar.Linux")
         self.window = None
 
     def do_startup(self):

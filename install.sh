@@ -2,169 +2,195 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${CLAUDEXBAR_REPO_DIR:-$SCRIPT_DIR}"
+REPO_DIR="${AIBAR_REPO_DIR:-$SCRIPT_DIR}"
 INSTALL_BASHRC=0
 FORCE_BASHRC=0
 OS_NAME="$(uname -s)"
+STATE_DIR="$HOME/.codex/aibar"
+LEGACY_STATE_DIR="$HOME/.codex/claudexbar"
 
 usage() {
   cat <<'EOF'
-Install ClaudexBar for macOS or Linux
+Install AIBar for macOS or Linux
 
 Usage:
-  install.sh [options]
+  ./install.sh [options]
 
 Options:
-  macOS automatically builds and installs /Applications/ClaudexBar.app.
-  Linux always installs the shared CLI and GTK dashboard; these options add shell helpers:
-  --bashrc        Install ~/.bashrc.d/claudexbar helper functions
-  --source <dir>  Source repo directory (default: install.sh directory)
-  --force-bashrc  Overwrite ~/.bashrc.d/claudexbar if it already exists
+  --bashrc        Install the optional `aibar` shell command on Linux
+  --source <dir>  Read source files from this checkout
+  --force-bashrc  Replace an existing ~/.bashrc.d/aibar helper
   -h, --help      Show this help
 
-Examples:
-  ./install.sh             # auto-detect macOS or Linux
-  ./install.sh --bashrc
+macOS installs /Applications/AIBar.app.
+Linux installs ~/.local/bin/aibar.ts and ~/.local/bin/aibar-dashboard.
 EOF
 }
 
-backup_if_exists() {
-  local file="$1"
-  if [[ -f "$file" ]]; then
-    cp "$file" "${file}.bak.$(date +%Y%m%d-%H%M%S)"
+resolve_repo_dir() {
+  if [[ ! -f "$REPO_DIR/aibar.ts" && -f "$HOME/Code/AIBar/aibar.ts" ]]; then
+    REPO_DIR="$HOME/Code/AIBar"
+  fi
+  if [[ ! -f "$REPO_DIR/aibar.ts" || ! -f "$REPO_DIR/aibar-linux.py" ]]; then
+    echo "Could not find aibar.ts and aibar-linux.py in $REPO_DIR."
+    echo "Set AIBAR_REPO_DIR or pass --source <dir>."
+    exit 1
   fi
 }
 
-resolve_repo_dir() {
-  if [[ ! -f "$REPO_DIR/claudexbar.ts" && -f "$HOME/Code/claudexbar/claudexbar.ts" ]]; then
-    REPO_DIR="$HOME/Code/claudexbar"
-  fi
-  if [[ ! -f "$REPO_DIR/claudexbar.ts" && -f "$HOME/Code/Claudexbar/claudexbar.ts" ]]; then
-    REPO_DIR="$HOME/Code/Claudexbar"
-  fi
-  if [[ ! -f "$REPO_DIR/claudexbar.ts" && -f "$HOME/Code/ClaudexBar/claudexbar.ts" ]]; then
-    REPO_DIR="$HOME/Code/ClaudexBar"
-  fi
-  if [[ ! -f "$REPO_DIR/claudexbar.ts" && -f "$HOME/code/ClaudexBar/claudexbar.ts" ]]; then
-    REPO_DIR="$HOME/code/ClaudexBar"
-  fi
-
-  if [[ ! -f "$REPO_DIR/claudexbar.ts" ]]; then
-    echo "Could not find claudexbar.ts in:"
-    echo "  $SCRIPT_DIR"
-    echo "  $HOME/Code/claudexbar"
-    echo "  $HOME/Code/Claudexbar"
-    echo "  $HOME/Code/ClaudexBar"
-    echo "  $HOME/code/ClaudexBar"
-    echo "Set CLAUDEXBAR_REPO_DIR or pass --source <dir>."
+preflight_state_migration() {
+  if [[ -e "$LEGACY_STATE_DIR" && -e "$STATE_DIR" ]]; then
+    echo "Cannot migrate AIBar state because both paths exist:"
+    echo "  $LEGACY_STATE_DIR"
+    echo "  $STATE_DIR"
+    echo "Move or reconcile one directory, then rerun the installer."
     exit 1
   fi
+}
+
+migrate_state() {
+  if [[ -d "$LEGACY_STATE_DIR" ]]; then
+    mkdir -p "$(dirname "$STATE_DIR")"
+    mv "$LEGACY_STATE_DIR" "$STATE_DIR"
+    rm -f "$STATE_DIR"/render-*.json "$STATE_DIR/claude-last-good.json" "$STATE_DIR/claude-backoff.json"
+    echo "Migrated state: $STATE_DIR"
+  fi
+}
+
+preflight_macos_preferences() {
+  local old_value new_value
+  old_value="$(defaults read com.andresreibel.claudexbar dismissedNotificationSignature 2>/dev/null || true)"
+  new_value="$(defaults read com.andresreibel.aibar dismissedNotificationSignature 2>/dev/null || true)"
+  if [[ -n "$old_value" && -n "$new_value" && "$old_value" != "$new_value" ]]; then
+    echo "AIBar notification settings conflict between the old and new app identities."
+    echo "Clear one dismissedNotificationSignature value, then rerun the installer."
+    exit 1
+  fi
+}
+
+migrate_macos_preferences() {
+  local old_value new_value
+  old_value="$(defaults read com.andresreibel.claudexbar dismissedNotificationSignature 2>/dev/null || true)"
+  new_value="$(defaults read com.andresreibel.aibar dismissedNotificationSignature 2>/dev/null || true)"
+  if [[ -n "$old_value" && -z "$new_value" ]]; then
+    defaults write com.andresreibel.aibar dismissedNotificationSignature "$old_value"
+  fi
+  defaults delete com.andresreibel.claudexbar >/dev/null 2>&1 || true
 }
 
 install_macos() {
   if [[ "$INSTALL_BASHRC" -eq 1 || "$FORCE_BASHRC" -eq 1 ]]; then
-    echo "Linux integration flags (--bashrc, --force-bashrc) are not valid on macOS."
+    echo "Linux integration flags are not valid on macOS."
     exit 1
   fi
-
-  if [[ ! -x "$HOME/.bun/bin/bun" ]] && ! command -v bun >/dev/null 2>&1; then
-    echo "Bun is required. Install it before ClaudexBar: https://bun.sh"
+  command -v bun >/dev/null 2>&1 || [[ -x "$HOME/.bun/bin/bun" ]] || {
+    echo "Bun is required: https://bun.sh"
     exit 1
-  fi
-  if ! command -v swift >/dev/null 2>&1; then
+  }
+  command -v swift >/dev/null 2>&1 || {
     echo "Swift is required. Install Xcode Command Line Tools first."
     exit 1
-  fi
-  if ! command -v rsvg-convert >/dev/null 2>&1; then
-    echo "rsvg-convert is required for the app icon. Install it with: brew install librsvg"
+  }
+  command -v rsvg-convert >/dev/null 2>&1 || {
+    echo "rsvg-convert is required. Install it with: brew install librsvg"
     exit 1
-  fi
+  }
 
+  preflight_state_migration
+  preflight_macos_preferences
   make -C "$REPO_DIR" install
-  echo "Installed: /Applications/ClaudexBar.app"
-  echo "Open it with: open /Applications/ClaudexBar.app"
+  pkill -x ClaudexBar 2>/dev/null || true
+  rm -rf /Applications/ClaudexBar.app
+  migrate_state
+  migrate_macos_preferences
+  echo "Installed: /Applications/AIBar.app"
+  echo "Open it with: open /Applications/AIBar.app"
 }
 
-install_script() {
+migrate_linux_widget() {
+  local config="$HOME/.config/omarchy/shell.json"
+  [[ -f "$config" ]] || return
+
+  python3 - "$config" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+legacy = []
+current = []
+
+def collect(value):
+    if isinstance(value, dict):
+        if value.get("id") == "claudexbar":
+            legacy.append(value)
+        elif value.get("id") == "aibar":
+            current.append(value)
+        for child in value.values():
+            collect(child)
+    elif isinstance(value, list):
+        for child in value:
+            collect(child)
+
+collect(data)
+if not legacy:
+    raise SystemExit(0)
+if len(legacy) != 1 or current:
+    raise SystemExit(
+        f"Cannot migrate AIBar widget in {path}: "
+        f"found {len(legacy)} old and {len(current)} new entries."
+    )
+
+legacy[0].clear()
+legacy[0].update({
+    "id": "aibar",
+    "type": "command",
+    "exec": "~/.bun/bin/bun ~/.local/bin/aibar.ts",
+    "interval": 1,
+    "onClick": "~/.local/bin/aibar-dashboard",
+})
+temporary = path.with_name(path.name + ".aibar.tmp")
+temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+os.chmod(temporary, path.stat().st_mode)
+temporary.replace(path)
+print(f"Migrated widget: {path}")
+PY
+}
+
+
+install_linux() {
+  preflight_state_migration
+  migrate_linux_widget
   mkdir -p "$HOME/.local/bin"
-  cp "$REPO_DIR/claudexbar.ts" "$HOME/.local/bin/claudexbar.ts"
-  cp "$REPO_DIR/claudexbar-linux.py" "$HOME/.local/bin/claudexbar-dashboard"
-  chmod +x "$HOME/.local/bin/claudexbar.ts" "$HOME/.local/bin/claudexbar-dashboard"
-  echo "Installed: ~/.local/bin/claudexbar.ts"
-  echo "Installed: ~/.local/bin/claudexbar-dashboard"
+  cp "$REPO_DIR/aibar.ts" "$HOME/.local/bin/aibar.ts"
+  cp "$REPO_DIR/aibar-linux.py" "$HOME/.local/bin/aibar-dashboard"
+  chmod +x "$HOME/.local/bin/aibar.ts" "$HOME/.local/bin/aibar-dashboard"
+  migrate_state
+  rm -f "$HOME/.local/bin/claudexbar.ts" "$HOME/.local/bin/claudexbar-dashboard"
+  rm -f "$HOME/.bashrc.d/claudexbar"
+  echo "Installed: ~/.local/bin/aibar.ts"
+  echo "Installed: ~/.local/bin/aibar-dashboard"
   echo "Source:    $REPO_DIR"
 }
 
 install_bashrc_integration() {
-  local target="$HOME/.bashrc.d/claudexbar"
+  local target="$HOME/.bashrc.d/aibar"
   mkdir -p "$HOME/.bashrc.d"
-
   if [[ -f "$target" && "$FORCE_BASHRC" -ne 1 ]]; then
-    echo "Skip bashrc integration: $target already exists (use --force-bashrc to overwrite)"
+    echo "Skipped existing $target. Use --force-bashrc to replace it."
     return
   fi
-
-  backup_if_exists "$target"
   cat > "$target" <<'EOF'
-# ClaudexBar shortcuts
+# AIBar command
 
-claudex() {
-  ~/.bun/bin/bun ~/.local/bin/claudexbar.ts "$@"
-}
-
-cdxraw() {
-  claudex "$@"
-}
-
-cdxmenu() {
-  local state_dir="$HOME/.codex/claudexbar"
-  mkdir -p "$state_dir"
-
-  while true; do
-    local provider
-    provider="$(cat "$state_dir/provider" 2>/dev/null || echo codex)"
-    echo ""
-    echo "Claudex Menu"
-    echo "────────────"
-    echo "provider: $provider"
-    echo "1) open / close dashboard"
-    echo "2) toggle bar provider"
-    echo "3) provider -> claude"
-    echo "4) provider -> codex"
-    echo "5) provider -> grok"
-    echo "6) sign in / reconnect grok"
-    echo "q) quit"
-    echo ""
-    read -rp "Select: " choice
-    case "$choice" in
-      1) ~/.local/bin/claudexbar-dashboard ;;
-      2) claudex --toggle ;;
-      3) claudex --provider claude ;;
-      4) claudex --provider codex ;;
-      5) claudex --provider grok ;;
-      6) claudex --login grok ;;
-      q|Q) break ;;
-      *) echo "Invalid choice" ;;
-    esac
-  done
-}
-
-unalias cdx 2>/dev/null || true
-cdx() {
-  if [[ $# -eq 0 ]]; then
-    cdxmenu
-    return
-  fi
-  claudex "$@"
+aibar() {
+  ~/.bun/bin/bun ~/.local/bin/aibar.ts "$@"
 }
 EOF
-
-  echo "Installed bashrc integration: $target"
-  if ! grep -qE 'source .*~/.bashrc.d|for file in ~/.bashrc.d/\*' "$HOME/.bashrc" 2>/dev/null; then
-    echo "Note: ensure ~/.bashrc sources ~/.bashrc.d/*"
-  fi
+  echo "Installed shell command: aibar"
 }
-
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -173,10 +199,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --source)
-      if [[ $# -lt 2 ]]; then
-        echo "Missing value for --source"
-        exit 1
-      fi
+      [[ $# -ge 2 ]] || { echo "Missing value for --source"; exit 1; }
       REPO_DIR="$2"
       shift 2
       ;;
@@ -198,18 +221,18 @@ done
 
 resolve_repo_dir
 
-if [[ "$OS_NAME" == "Darwin" ]]; then
-  install_macos
-  exit 0
-fi
-
-if [[ "$OS_NAME" != "Linux" ]]; then
-  echo "Unsupported operating system: $OS_NAME"
-  exit 1
-fi
-
-install_script
-
-if [[ "$INSTALL_BASHRC" -eq 1 ]]; then
-  install_bashrc_integration
-fi
+case "$OS_NAME" in
+  Darwin)
+    install_macos
+    ;;
+  Linux)
+    install_linux
+    if [[ "$INSTALL_BASHRC" -eq 1 ]]; then
+      install_bashrc_integration
+    fi
+    ;;
+  *)
+    echo "Unsupported operating system: $OS_NAME"
+    exit 1
+    ;;
+esac

@@ -29,7 +29,7 @@ import {
     stampPayload,
     stripLegacyBarCountdown,
     weeklyPacePercentagePoints,
-} from "./claudexbar";
+} from "./aibar";
 
 describe("Claude weekly pacing", () => {
     test("uses the full seven-day window reported by Anthropic", () => {
@@ -221,7 +221,7 @@ describe("stripLegacyBarCountdown", () => {
 
 describe("compactLegacyTooltip", () => {
     test("compacts the former centred tooltip from cached payloads", () => {
-        expect(compactLegacyTooltip("ClaudexBar\n-----------\n\nSession: 2% (on track)\n  Resets in 4h55m\n\nWeekly: 78% (18% ahead)\n  Resets in 2d9h\n\nUpdated: 07:34 PM"))
+        expect(compactLegacyTooltip("AIBar\n-----------\n\nSession: 2% (on track)\n  Resets in 4h55m\n\nWeekly: 78% (18% ahead)\n  Resets in 2d9h\n\nUpdated: 07:34 PM"))
             .toBe("Session 2% · reset 4h55m\nWeek 78% · reset 2d9h\nUpdated: 07:34 PM");
     });
 });
@@ -616,7 +616,7 @@ describe("Grok provider", () => {
     });
 
     test("opens the explicit PKCE login and stores returned credentials atomically", async () => {
-        const directory = await mkdtemp(join(tmpdir(), "claudexbar-grok-login-"));
+        const directory = await mkdtemp(join(tmpdir(), "aibar-grok-login-"));
         const authPath = join(directory, "grok-auth.json");
         let openedUrl = "";
         let polledUrl = "";
@@ -663,8 +663,8 @@ describe("Grok provider", () => {
         }
     });
 
-    test("posts the Connect request with ClaudexBar-owned auth and redacts output", async () => {
-        const directory = await mkdtemp(join(tmpdir(), "claudexbar-grok-usage-"));
+    test("posts the Connect request with AIBar-owned auth and redacts output", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "aibar-grok-usage-"));
         const authPath = join(directory, "grok-auth.json");
         const sentinel = "test-token-must-not-leak";
         await writeFile(authPath, JSON.stringify({
@@ -705,7 +705,7 @@ describe("Grok provider", () => {
     });
 
     test("keeps weekly Grok usage when optional monthly usage is unavailable", async () => {
-        const directory = await mkdtemp(join(tmpdir(), "claudexbar-grok-monthly-"));
+        const directory = await mkdtemp(join(tmpdir(), "aibar-grok-monthly-"));
         const authPath = join(directory, "grok-auth.json");
         await writeFile(authPath, JSON.stringify({
             accessToken: "test-access-token",
@@ -731,7 +731,7 @@ describe("Grok provider", () => {
     });
 
     test("fails closed on missing auth, unauthorized auth, and malformed usage", async () => {
-        const directory = await mkdtemp(join(tmpdir(), "claudexbar-grok-errors-"));
+        const directory = await mkdtemp(join(tmpdir(), "aibar-grok-errors-"));
         const authPath = join(directory, "grok-auth.json");
         try {
             await expect(fetchGrokPayload({ authPath }))
@@ -757,7 +757,7 @@ describe("Grok provider", () => {
     });
 
     test("labels only missing or rejected Grok credentials as sign-in required", async () => {
-        const directory = await mkdtemp(join(tmpdir(), "claudexbar-grok-auth-state-"));
+        const directory = await mkdtemp(join(tmpdir(), "aibar-grok-auth-state-"));
         const authPath = join(directory, "grok-auth.json");
         try {
             const missing = await renderGrokPayload({ authPath });

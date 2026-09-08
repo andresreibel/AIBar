@@ -2,9 +2,9 @@
 
 ## Contract
 
-ClaudexBar is one cross-platform product with one shared quota engine.
+AIBar is one cross-platform product with one shared quota engine.
 
-- `claudexbar.ts` owns Codex/Claude auth, usage, pacing, caching, and payload behavior.
+- `aibar.ts` owns Codex/Claude auth, usage, pacing, caching, and payload behavior.
 - Linux uses the shared engine through an Omarchy Quattro command widget.
 - macOS uses a thin native SwiftUI menu-bar shell that bundles and invokes the same engine.
 - Keep platform-specific UI and installation code thin; do not duplicate provider logic in Swift.
@@ -23,9 +23,9 @@ make app
 Installed-app tests are valid only after rebuilding and reinstalling:
 
 ```sh
-pkill -x ClaudexBar || true
+pkill -x AIBar || true
 make install
-open /Applications/ClaudexBar.app
+open /Applications/AIBar.app
 ```
 
-The running process must be `/Applications/ClaudexBar.app/Contents/MacOS/ClaudexBar`.
+The running process must be `/Applications/AIBar.app/Contents/MacOS/AIBar`.

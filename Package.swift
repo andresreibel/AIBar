@@ -2,28 +2,28 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClaudexBar",
+    name: "AIBar",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .library(name: "ClaudexBarCore", targets: ["ClaudexBarCore"]),
-        .executable(name: "claudexbar-macos", targets: ["claudexbar-macos"])
+        .library(name: "AIBarCore", targets: ["AIBarCore"]),
+        .executable(name: "aibar-macos", targets: ["aibar-macos"])
     ],
     targets: [
         .target(
-            name: "ClaudexBarCore",
-            path: "Sources/ClaudexBarCore"
+            name: "AIBarCore",
+            path: "Sources/AIBarCore"
         ),
         .executableTarget(
-            name: "claudexbar-macos",
-            dependencies: ["ClaudexBarCore"],
-            path: "Sources/claudexbar-macos"
+            name: "aibar-macos",
+            dependencies: ["AIBarCore"],
+            path: "Sources/aibar-macos"
         ),
         .testTarget(
-            name: "ClaudexBarCoreTests",
-            dependencies: ["ClaudexBarCore"],
-            path: "Tests/ClaudexBarCoreTests"
+            name: "AIBarCoreTests",
+            dependencies: ["AIBarCore"],
+            path: "Tests/AIBarCoreTests"
         )
     ]
 )
