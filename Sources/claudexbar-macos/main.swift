@@ -237,12 +237,45 @@ private final class ClaudexBarModel: ObservableObject {
 private struct ClaudexBarMenu: View {
     @ObservedObject var model: ClaudexBarModel
     @State private var showsResetCreditExpiries = false
+    @State private var showsUsageGuide = false
+    @State private var unavailableDetailProvider: ClaudexBarProvider?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("ClaudexBar")
                     .font(.headline)
+                Button {
+                    showsUsageGuide.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .buttonStyle(.plain)
+                .frame(width: 24, height: 24)
+                .help("How usage pacing works")
+                .popover(isPresented: $showsUsageGuide, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Usage pacing")
+                            .font(.headline)
+                        Text("Expected shows where usage would be at an even pace through the current quota window.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            pacingGuideRow(color: .green, text: "Green is capacity remaining before expected.")
+                            pacingGuideRow(color: cosmicOrange, text: "Orange is slightly above expected.")
+                            pacingGuideRow(color: .red, text: "Red is 10 points or more above expected.")
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("+  Below expected")
+                            Text("−  Above expected")
+                        }
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    .padding(14)
+                    .frame(width: 250, alignment: .leading)
+                }
                 Spacer()
                 Button {
                     Task { await model.refresh() }
@@ -317,17 +350,6 @@ private struct ClaudexBarMenu: View {
                 Spacer(minLength: 0)
             }
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text(entry?.paceText ?? "--")
-                    .font(.system(size: 26, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(paceColor(entry?.weeklyPace))
-                Text("Weekly pace (expected − actual)")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .allowsTightening(true)
-            }
-
             if let payload {
                 if payload.usageRows.isEmpty {
                     if let percentage = payload.percentage {
@@ -396,9 +418,9 @@ private struct ClaudexBarMenu: View {
                     }
                 }
 
-                let detail = payload.macOSDetail
-                if !detail.isEmpty {
-                    Text(detail)
+                let details = providerDetails(payload.macOSDetail)
+                if !details.visible.isEmpty {
+                    Text(details.visible)
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(payload.severity == .error ? Color.red : Color.secondary)
                         .textSelection(.enabled)
@@ -416,10 +438,48 @@ private struct ClaudexBarMenu: View {
 
                 Spacer(minLength: 0)
 
-                if let updatedTime = payload.updatedTimeText {
-                    Text("Updated \(updatedTime)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                if payload.updatedTimeText != nil || !details.unavailableQuotas.isEmpty {
+                    HStack(spacing: 6) {
+                        if let updatedTime = payload.updatedTimeText {
+                            Text("Updated \(updatedTime)")
+                        }
+                        Spacer(minLength: 0)
+                        if !details.unavailableQuotas.isEmpty {
+                            Button {
+                                unavailableDetailProvider = provider
+                            } label: {
+                                Image(systemName: "info.circle")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.tertiary)
+                            .help("Why some usage is unavailable")
+                            .popover(
+                                isPresented: Binding(
+                                    get: { unavailableDetailProvider == provider },
+                                    set: { isPresented in
+                                        if !isPresented {
+                                            unavailableDetailProvider = nil
+                                        }
+                                    }
+                                ),
+                                arrowEdge: .bottom
+                            ) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("\(provider.displayName) usage unavailable")
+                                        .font(.headline)
+                                    ForEach(details.unavailableQuotas, id: \.self) { quota in
+                                        Text(unavailableQuotaExplanation(quota, provider: provider))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .font(.caption)
+                                .padding(14)
+                                .frame(width: 260, alignment: .leading)
+                            }
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                 }
             } else {
                 Text("Loading usage…")
@@ -441,6 +501,38 @@ private struct ClaudexBarMenu: View {
         )
     }
 
+    private func providerDetails(_ detail: String) -> (visible: String, unavailableQuotas: [String]) {
+        var visibleLines: [String] = []
+        var unavailableQuotas: [String] = []
+
+        for line in detail.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            switch line.trimmingCharacters(in: .whitespaces) {
+            case "Session unavailable":
+                unavailableQuotas.append("Session")
+            case "Week unavailable", "Weekly unavailable":
+                unavailableQuotas.append("Weekly")
+            default:
+                visibleLines.append(line)
+            }
+        }
+
+        while visibleLines.first?.isEmpty == true {
+            visibleLines.removeFirst()
+        }
+        while visibleLines.last?.isEmpty == true {
+            visibleLines.removeLast()
+        }
+
+        return (visibleLines.joined(separator: "\n"), unavailableQuotas)
+    }
+
+    private func unavailableQuotaExplanation(
+        _ quota: String,
+        provider: ClaudexBarProvider
+    ) -> String {
+        "\(provider.displayName) did not provide \(quota.lowercased()) usage, so that quota is not shown."
+    }
+
     private func usageColor(for severity: ClaudexBarSeverity) -> Color {
         switch severity {
         case .critical, .error: .red
@@ -449,13 +541,7 @@ private struct ClaudexBarMenu: View {
         }
     }
 
-    private func paceColor(_ pace: Double?) -> Color {
-        guard let pace else { return .secondary }
-        if pace < 0 { return cosmicOrange }
-        if pace > 0 { return .green }
-        return .secondary
-    }
-
+    @ViewBuilder
     private func usageRow(
         label: String,
         percentage: Double,
@@ -464,37 +550,62 @@ private struct ClaudexBarMenu: View {
         tint: Color
     ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(compactLabel(label))
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text("\(formatPercentage(percentage))%")
-                    .monospacedDigit()
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-
-            ProgressView(value: min(max(percentage, 0), 100), total: 100)
-                .tint(tint)
-                .controlSize(.small)
-
             if let pacing {
+                let expected = pacing.expectedPercentage
+                let common = min(percentage, expected)
+
                 HStack {
                     Text("Expected")
                     Spacer(minLength: 4)
-                    Text("\(formatPercentage(pacing.expectedPercentage))%")
+                    Text("\(formatPercentage(expected))%")
                         .monospacedDigit()
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
-                ProgressView(
-                    value: min(max(pacing.expectedPercentage, 0), 100),
-                    total: 100
+                comparisonMeter(
+                    neutralThrough: common,
+                    highlightThrough: expected,
+                    highlight: .green
                 )
-                .tint(Color.secondary)
-                .controlSize(.small)
+
+                HStack {
+                    Text(compactLabel(label))
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let delta = signedDeltaText(expected: expected, actual: percentage) {
+                        Text(delta)
+                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .foregroundStyle(deltaColor(expected: expected, actual: percentage).opacity(0.88))
+                            .monospacedDigit()
+                    }
+                    Text("\(formatPercentage(percentage))%")
+                        .font(.system(.caption2, design: .monospaced, weight: .semibold))
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+                comparisonMeter(
+                    neutralThrough: common,
+                    highlightThrough: percentage,
+                    highlight: overageColor(expected: expected, actual: percentage)
+                )
+            } else {
+                HStack {
+                    Text(compactLabel(label))
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(formatPercentage(percentage))%")
+                        .monospacedDigit()
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+                ProgressView(value: min(max(percentage, 0), 100), total: 100)
+                    .tint(tint)
+                    .controlSize(.small)
             }
 
             if let resetText {
@@ -503,6 +614,57 @@ private struct ClaudexBarMenu: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+    private func pacingGuideRow(color: Color, text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(text)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func comparisonMeter(
+        neutralThrough: Double,
+        highlightThrough: Double,
+        highlight: Color
+    ) -> some View {
+        let neutral = min(max(neutralThrough, 0), 100)
+        let highlighted = min(max(highlightThrough, neutral), 100)
+
+        return GeometryReader { geometry in
+            let width = geometry.size.width
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.08))
+                Rectangle()
+                    .fill(Color.secondary)
+                    .frame(width: width * neutral / 100)
+                Rectangle()
+                    .fill(highlight)
+                    .frame(width: width * (highlighted - neutral) / 100)
+                    .offset(x: width * neutral / 100)
+            }
+            .clipShape(Capsule())
+        }
+        .frame(height: 6)
+    }
+
+    private func signedDeltaText(expected: Double, actual: Double) -> String? {
+        let delta = expected - actual
+        guard delta != 0 else { return nil }
+        let sign = delta > 0 ? "+" : "−"
+        return "\(sign)\(formatPercentage(abs(delta)))%"
+    }
+
+    private func deltaColor(expected: Double, actual: Double) -> Color {
+        expected > actual ? .green : overageColor(expected: expected, actual: actual)
+    }
+
+    private func overageColor(expected: Double, actual: Double) -> Color {
+        actual - expected >= 10 ? .red : cosmicOrange
     }
 
     private func compactLabel(_ label: String) -> String {

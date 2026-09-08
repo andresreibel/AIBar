@@ -19,7 +19,7 @@ The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI
 ## Features
 
 - Matching three-card Anthropic, OpenAI, and SpaceXAI dashboards on macOS and Linux.
-- Paired actual and expected progress bars with reset countdowns for session and weekly windows; SpaceXAI shows Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly).
+- Expected-first comparison meters on macOS keep shared usage neutral, color only the difference, and show a small signed delta; Linux retains paired actual and expected bars. Reset countdowns cover session and weekly windows, while SpaceXAI also shows Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly).
 - Signed weekly pace is `expected − actual`: negative means quota consumption is ahead of its linear allowance.
 - Disconnected providers show a **Reconnect** button in their dashboard column; the macOS menu-bar summary omits them until they reconnect.
 - OpenAI reset-credit count in both dashboards, with each available credit's expiry shown by hovering over or clicking the macOS Reset credits row.
@@ -47,7 +47,7 @@ A -1%  O +4%  S +39%
 
 Only the provider letter changes color based on the percentage of that provider's weekly limit already used: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. `S` uses the GrokBot Weekly limit, not either monthly Cursor bucket. The signed pace percentage keeps the native label color.
 
-The macOS popover and Linux dashboard both show all three providers in fixed Anthropic, OpenAI, SpaceXAI order. Each compact column retains the provider's available session, weekly, monthly, reset-credit, authentication, and refresh details. On macOS, click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list. Actual and expected bars remain separate so the signed pace can be checked visually.
+The macOS popover and Linux dashboard both show all three providers in fixed Anthropic, OpenAI, SpaceXAI order. Each compact column retains the provider's available session, weekly, monthly, reset-credit, authentication, and refresh details. On macOS, Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. Missing quota text is replaced by one compact gray information control beside that provider's update time. Click it for the provider's explanation. Click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list. Linux retains separate actual and expected bars.
 
 Linux retains its compact selectable bar display:
 
