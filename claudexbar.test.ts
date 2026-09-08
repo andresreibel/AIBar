@@ -4,26 +4,29 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
     CLAUDE_WEEKLY_WINDOW_MS,
+    annotateCachedClaudePayload,
     calcPacing,
+    classifyProviderAccess,
     codexUsageToPayload,
+    compactLegacyTooltip,
+    compactOutputPayload,
     decodeMacOSKeychainSecret,
     enrichCodexUsageWithResetCredits,
+    fetchGrokPayload,
     formatCredits,
-    compactLegacyTooltip,
+    grokUsageToPayload,
+    isCompactEligible,
+    isRenderCacheCompatible,
+    loginGrok,
+    nextProvider,
+    normalizeBarPayload,
     parseCodexOAuthUsage,
     parseCodexResetCreditDetails,
-    stampPayload,
-    fetchGrokPayload,
-    grokUsageToPayload,
-    loginGrok,
-    isRenderCacheCompatible,
-    normalizeBarPayload,
-    nextProvider,
     parseCursorMonthlyUsage,
     parseGrokUsage,
-    providerAuthenticationRequired,
     renderAllProviders,
     renderGrokPayload,
+    stampPayload,
     stripLegacyBarCountdown,
     weeklyPacePercentagePoints,
 } from "./claudexbar";
@@ -61,6 +64,7 @@ describe("combined provider pacing", () => {
     const payload = (label: string, actual: number, expected: number) => ({
         text: "",
         tooltip: "",
+        accessState: "available" as const,
         usageRows: [{
             label,
             percentage: actual,
@@ -90,15 +94,76 @@ describe("combined provider pacing", () => {
         expect(result.providers.map(({ provider }) => provider)).toEqual(["claude", "codex", "grok"]);
         expect(result.providers.map(({ weeklyPace }) => weeklyPace)).toEqual([-1, null, 39]);
         expect(result.providers[1]?.payload.class).toBe("error");
+        expect(result.providers[1]?.payload.accessState).toBe("unavailable");
+    });
+
+    test("retains definite lost-access providers in the dashboard aggregate", async () => {
+        const result = await renderAllProviders(async (provider) => ({
+            text: `${provider} 42%`,
+            tooltip: "sanitized",
+            accessState: provider == "claude" ? "login_required" : "subscription_expired",
+            percentage: 42,
+            percentageLabel: "Weekly",
+        }));
+
+        expect(result.providers).toHaveLength(3);
+        expect(result.providers.map(({ payload }) => payload.accessState)).toEqual([
+            "login_required",
+            "subscription_expired",
+            "subscription_expired",
+        ]);
+        expect(result.providers.every(({ payload }) => payload.text.length > 0)).toBe(true);
     });
 });
 
-describe("provider authentication state", () => {
-    test("recognizes reconnectable Claude and Codex failures", () => {
-        expect(providerAuthenticationRequired("claude", "Missing Claude Code credentials in the macOS Keychain. Run: claude")).toBe(true);
-        expect(providerAuthenticationRequired("codex", "Missing ~/.codex/auth.json. Run: codex login")).toBe(true);
-        expect(providerAuthenticationRequired("claude", "Claude usage API 403: organization policy")).toBe(false);
-        expect(providerAuthenticationRequired("codex", "Codex RPC timed out")).toBe(false);
+describe("provider access classification", () => {
+    test("uses only typed provider-boundary evidence", () => {
+        expect(classifyProviderAccess("claude", { kind: "missing_credentials" })).toBe("login_required");
+        expect(classifyProviderAccess("claude", { kind: "cli_login_absent" })).toBe("login_required");
+        expect(classifyProviderAccess("claude", {
+            kind: "oauth_error",
+            code: "invalid_grant",
+        })).toBe("login_required");
+        expect(classifyProviderAccess("grok", {
+            kind: "http_status",
+            status: 401,
+            authoritative: true,
+        })).toBe("login_required");
+    });
+
+    test("keeps ambiguous status, malformed, network, and human-text failures unavailable", () => {
+        for (const status of [401, 402, 403, 429, 500]) {
+            expect(classifyProviderAccess("claude", {
+                kind: "http_status",
+                status,
+                authoritative: true,
+            })).toBe("unavailable");
+        }
+        expect(classifyProviderAccess("claude", [
+            { kind: "http_status", status: 401, authoritative: false },
+            { kind: "cli_login_present" },
+        ])).toBe("unavailable");
+        expect(classifyProviderAccess("grok", {
+            kind: "http_status",
+            status: 401,
+            authoritative: false,
+        })).toBe("unavailable");
+        const humanTextEvidence = {
+            kind: "generic_failure" as const,
+            message: "401 unauthorized: subscription expired",
+        };
+        expect(classifyProviderAccess("claude", humanTextEvidence)).toBe("unavailable");
+        expect(classifyProviderAccess("codex", { kind: "generic_failure" })).toBe("unavailable");
+    });
+
+    test("lets Codex RPC success override OAuth 401 but not a generic RPC failure", () => {
+        const oauth401 = {
+            kind: "http_status" as const,
+            status: 401,
+            authoritative: false,
+        };
+        expect(classifyProviderAccess("codex", [oauth401, { kind: "success" }])).toBe("available");
+        expect(classifyProviderAccess("codex", [oauth401, { kind: "generic_failure" }])).toBe("unavailable");
     });
 });
 
@@ -114,9 +179,36 @@ describe("decodeMacOSKeychainSecret", () => {
 
 describe("stampPayload", () => {
     test("adds a machine-readable timestamp and subtle tooltip line", () => {
-        const payload = stampPayload({ text: "O", tooltip: "Codex" }, Date.UTC(2026, 6, 11, 8, 10));
+        const payload = stampPayload({
+            text: "O",
+            tooltip: "Codex",
+            accessState: "available",
+        }, Date.UTC(2026, 6, 11, 8, 10));
         expect(payload.updatedAt).toBe("2026-07-11T08:10:00.000Z");
         expect(payload.tooltip).toContain("\nUpdated:");
+    });
+});
+
+describe("Claude stale fallback", () => {
+    test("marks cached usage stale while retaining its quota rows", () => {
+        const cached = {
+            text: "A 42%",
+            tooltip: "Week 42%",
+            accessState: "available" as const,
+            percentage: 42,
+            percentageLabel: "Weekly",
+            usageRows: [{
+                label: "Weekly",
+                percentage: 42,
+                resetText: "2d",
+                severity: "normal" as const,
+            }],
+        };
+        const stale = annotateCachedClaudePayload(cached, "Live fetch failed.");
+
+        expect(stale.accessState).toBe("stale");
+        expect(stale.usageRows).toEqual(cached.usageRows);
+        expect(stale.tooltip).toContain("Stale · cached Anthropic usage");
     });
 });
 
@@ -200,7 +292,7 @@ describe("Codex reset-credit enrichment", () => {
 });
 
 describe("Codex render-cache compatibility", () => {
-    const payload = { text: "O", tooltip: "Codex" };
+    const payload = { text: "O", tooltip: "Codex", accessState: "available" as const };
 
     test("refreshes a legacy successful Codex cache without credit details", () => {
         expect(isRenderCacheCompatible("codex", payload)).toBe(false);
@@ -234,6 +326,57 @@ describe("Codex render-cache compatibility", () => {
             { label: "Weekly", percentage: 10, resetText: "2d", severity: "normal" },
         ]);
     });
+
+    test("requires a recognized access state and rejects legacy boolean-only caches", () => {
+        for (const accessState of [
+            "available",
+            "stale",
+            "unavailable",
+            "login_required",
+            "subscription_expired",
+        ] as const) {
+            expect(normalizeBarPayload({ ...payload, accessState })?.accessState).toBe(accessState);
+        }
+        expect(normalizeBarPayload({ text: "O", tooltip: "Codex" })).toBeNull();
+        expect(normalizeBarPayload({
+            text: "O",
+            tooltip: "Codex",
+            ["authentication" + "Required"]: true,
+        })).toBeNull();
+        expect(normalizeBarPayload({ ...payload, accessState: "expired" })).toBeNull();
+    });
+});
+
+describe("compact provider output", () => {
+    test("omits providers without current or cached usage without discarding dashboard data", () => {
+        for (const accessState of ["available", "stale"] as const) {
+            const payload = {
+                text: "A 42%",
+                tooltip: "sanitized",
+                accessState,
+                percentage: 42,
+                percentageLabel: "Weekly",
+            };
+            expect(isCompactEligible(accessState)).toBe(true);
+            expect(compactOutputPayload(payload)).toEqual(payload);
+        }
+        for (const accessState of ["unavailable", "login_required", "subscription_expired"] as const) {
+            const compact = compactOutputPayload({
+                text: "A 42%",
+                tooltip: "sanitized",
+                accessState,
+                percentage: 42,
+                percentageLabel: "Weekly",
+            });
+            expect(isCompactEligible(accessState)).toBe(false);
+            expect(compact.text).toBe("");
+            expect(compact.tooltip).toBe("sanitized");
+            expect(compact.accessState).toBe(accessState);
+            expect(compact).not.toHaveProperty("percentage");
+            expect(compact).not.toHaveProperty("percentageLabel");
+        }
+    });
+
 });
 
 describe("codexUsageToPayload", () => {
@@ -451,7 +594,7 @@ describe("Grok provider", () => {
         expect(payload.text).toContain("◉42%");
         expect(payload.class).toContain("provider-grok");
         expect(payload.percentageLabel).toBe("Weekly");
-        expect(payload.authenticationRequired).toBe(false);
+        expect(payload.accessState).toBe("available");
         expect(payload.tooltip).toContain("Week 42%");
         expect(nextProvider("codex")).toBe("claude");
         expect(nextProvider("claude")).toBe("grok");
@@ -554,7 +697,7 @@ describe("Grok provider", () => {
             expect(headers.get("content-type")).toBe("application/json");
             expect(headers.get("connect-protocol-version")).toBe("1");
             expect(JSON.stringify(payload)).not.toContain(sentinel);
-            expect(payload.authenticationRequired).toBe(false);
+            expect(payload.accessState).toBe("available");
             expect(payload.usageRows.map((row) => row.percentage)).toEqual([1, 1, 42]);
         } finally {
             await rm(directory, { recursive: true, force: true });
@@ -578,8 +721,10 @@ describe("Grok provider", () => {
             });
             expect(payload.text).toContain("◉42%");
             expect(payload.percentageLabel).toBe("Weekly");
-            expect(payload.authenticationRequired).toBe(false);
+            expect(payload.accessState).toBe("available");
             expect(payload.usageRows.map((row) => row.label)).toEqual(["GrokBot (Weekly)"]);
+            expect(payload.tooltip).toContain("Cursor monthly unavailable");
+            expect(payload.tooltip).toContain("Other monthly unavailable");
         } finally {
             await rm(directory, { recursive: true, force: true });
         }
@@ -616,7 +761,7 @@ describe("Grok provider", () => {
         const authPath = join(directory, "grok-auth.json");
         try {
             const missing = await renderGrokPayload({ authPath });
-            expect(missing.authenticationRequired).toBe(true);
+            expect(missing.accessState).toBe("login_required");
 
             await writeFile(authPath, JSON.stringify({
                 accessToken: "test-access-token",
@@ -626,13 +771,13 @@ describe("Grok provider", () => {
                 authPath,
                 fetchImpl: async () => new Response(null, { status: 401 }),
             });
-            expect(unauthorized.authenticationRequired).toBe(true);
+            expect(unauthorized.accessState).toBe("login_required");
 
             const unavailable = await renderGrokPayload({
                 authPath,
                 fetchImpl: async () => new Response(null, { status: 503 }),
             });
-            expect(unavailable.authenticationRequired).toBeUndefined();
+            expect(unavailable.accessState).toBe("unavailable");
 
             const malformed = await renderGrokPayload({
                 authPath,
@@ -641,7 +786,7 @@ describe("Grok provider", () => {
                     nextResetTimestampUtc: usageResponse.nextResetTimestampUtc,
                 }),
             });
-            expect(malformed.authenticationRequired).toBeUndefined();
+            expect(malformed.accessState).toBe("unavailable");
         } finally {
             await rm(directory, { recursive: true, force: true });
         }

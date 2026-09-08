@@ -52,6 +52,22 @@ function renderCachePath(provider: Provider): string {
 
 export type Provider = typeof CLAUDE_PROVIDER | typeof CODEX_PROVIDER | typeof GROK_PROVIDER;
 
+export type ProviderAccessState =
+    | "available"
+    | "stale"
+    | "unavailable"
+    | "login_required"
+    | "subscription_expired";
+
+type ProviderAccessEvidence =
+    | { kind: "success" }
+    | { kind: "missing_credentials" }
+    | { kind: "cli_login_absent" }
+    | { kind: "cli_login_present" }
+    | { kind: "http_status"; status: number; authoritative: boolean }
+    | { kind: "oauth_error"; code: string }
+    | { kind: "generic_failure" };
+
 type Args = {
     provider: Provider | null;
     toggleProvider: boolean;
@@ -76,16 +92,16 @@ export type ResetCreditDetail = {
     expiresAt: number | null;
 };
 
-type BarPayload = {
+export type BarPayload = {
     text: string;
     tooltip: string;
+    accessState: ProviderAccessState;
     class?: string | string[];
     percentage?: number;
     percentageLabel?: string;
     resetCredits?: number;
     resetCreditDetails?: ResetCreditDetail[];
     updatedAt?: string;
-    authenticationRequired?: boolean;
     usageRows?: UsageRow[];
 };
 
@@ -171,7 +187,40 @@ type GrokLoginDependencies = {
     verifier?: () => string;
 };
 
-class GrokAuthenticationError extends Error {}
+class ProviderAccessError extends Error {
+    constructor(message: string, readonly evidence: ProviderAccessEvidence) {
+        super(message);
+    }
+}
+
+export function classifyProviderAccess(
+    provider: Provider,
+    evidence: ProviderAccessEvidence | ProviderAccessEvidence[],
+): ProviderAccessState {
+    const entries = Array.isArray(evidence) ? evidence : [evidence];
+    if (entries.some((entry) => entry.kind == "success")) {
+        return "available";
+    }
+    if (entries.some((entry) =>
+        entry.kind == "missing_credentials" || entry.kind == "cli_login_absent")) {
+        return "login_required";
+    }
+    if (provider == CLAUDE_PROVIDER
+        && entries.some((entry) =>
+            entry.kind == "oauth_error" && entry.code == "invalid_grant")) {
+        return "login_required";
+    }
+    if (provider == GROK_PROVIDER
+        && entries.some((entry) =>
+            entry.kind == "http_status" && entry.authoritative && entry.status == 401)) {
+        return "login_required";
+    }
+    return "unavailable";
+}
+
+function providerAccessEvidence(error: unknown): ProviderAccessEvidence {
+    return error instanceof ProviderAccessError ? error.evidence : { kind: "generic_failure" };
+}
 
 type CodexAuth = {
     raw: Record<string, unknown>;
@@ -306,7 +355,8 @@ export function normalizeBarPayload(value: unknown): BarPayload | null {
 
     const text = toStringValue(value.text);
     const tooltip = toStringValue(value.tooltip);
-    if (!text || !tooltip) {
+    const accessState = value.accessState;
+    if (!text || !tooltip || !isProviderAccessState(accessState)) {
         return null;
     }
 
@@ -361,12 +411,10 @@ export function normalizeBarPayload(value: unknown): BarPayload | null {
             };
         })
         : undefined;
-    const authenticationRequired = typeof value.authenticationRequired == "boolean"
-        ? value.authenticationRequired
-        : undefined;
     return {
         text,
         tooltip,
+        accessState,
         class: cssClass,
         percentage,
         percentageLabel,
@@ -374,8 +422,15 @@ export function normalizeBarPayload(value: unknown): BarPayload | null {
         resetCreditDetails,
         usageRows,
         updatedAt,
-        authenticationRequired,
     };
+}
+
+function isProviderAccessState(value: unknown): value is ProviderAccessState {
+    return value == "available"
+        || value == "stale"
+        || value == "unavailable"
+        || value == "login_required"
+        || value == "subscription_expired";
 }
 
 function isErrorPayload(payload: BarPayload): boolean {
@@ -463,12 +518,11 @@ async function loadClaudeBackoff(): Promise<ClaudeBackoffState | null> {
     }
 
     const retryAtMs = toNumber(parsed.retryAtMs);
-    const reason = toStringValue(parsed.reason) ?? "Rate limited. Please try again later.";
     if (retryAtMs == null || retryAtMs <= Date.now()) {
         return null;
     }
 
-    return { retryAtMs, reason };
+    return { retryAtMs, reason: "Rate limited. Please try again later." };
 }
 
 async function saveClaudeBackoff(state: ClaudeBackoffState): Promise<void> {
@@ -575,9 +629,10 @@ export function stampPayload(payload: BarPayload, updatedAtMs: number = Date.now
     };
 }
 
-function annotateCachedClaudePayload(payload: BarPayload, detail: string): BarPayload {
+export function annotateCachedClaudePayload(payload: BarPayload, detail: string): BarPayload {
     return {
         ...payload,
+        accessState: "stale",
         text: stripLegacyBarCountdown(payload.text),
         tooltip: `${compactLegacyTooltip(payload.tooltip)}\nStale · cached Anthropic usage\n${detail}`,
         class: mergeClasses(payload.class, "stale", "provider-claude"),
@@ -707,7 +762,10 @@ async function loadCodexAuth(): Promise<CodexAuth> {
     try {
         rawText = await readFile(CODEX_AUTH_PATH, "utf8");
     } catch {
-        throw new Error("Missing ~/.codex/auth.json. Run: codex login");
+        throw new ProviderAccessError(
+            "Missing ~/.codex/auth.json. Run: codex login",
+            { kind: "missing_credentials" },
+        );
     }
 
     let parsed: unknown;
@@ -734,7 +792,10 @@ async function loadCodexAuth(): Promise<CodexAuth> {
 
     const tokens = readNestedRecord(parsed, "tokens");
     if (!tokens) {
-        throw new Error("No tokens found in ~/.codex/auth.json");
+        throw new ProviderAccessError(
+            "No tokens found in ~/.codex/auth.json",
+            { kind: "missing_credentials" },
+        );
     }
 
     const accessToken = toStringValue(tokens.access_token);
@@ -743,7 +804,10 @@ async function loadCodexAuth(): Promise<CodexAuth> {
     const lastRefresh = parseIsoDate(toStringValue(parsed.last_refresh));
 
     if (!accessToken) {
-        throw new Error("Missing Codex access token. Run: codex login");
+        throw new ProviderAccessError(
+            "Missing Codex access token. Run: codex login",
+            { kind: "missing_credentials" },
+        );
     }
 
     return {
@@ -904,7 +968,11 @@ async function fetchCodexUsageViaOAuth(): Promise<CodexUsageSnapshot> {
 
     const response = await fetch(`${baseUrl}${path}`, { headers });
     if (!response.ok) {
-        throw new Error(`OAuth API ${response.status}`);
+        throw new ProviderAccessError(`OAuth API ${response.status}`, {
+            kind: "http_status",
+            status: response.status,
+            authoritative: false,
+        });
     }
 
     const usage = parseCodexOAuthUsage(await response.json());
@@ -1107,7 +1175,6 @@ export function codexUsageToPayload(usage: CodexUsageSnapshot): BarPayload {
     const weeklyCountdown = formatCountdown(usage.weeklyResetAt);
     const sessionWindowMs = usage.sessionWindowMinutes != null ? usage.sessionWindowMinutes * 60_000 : null;
     const weeklyWindowMs = usage.weeklyWindowMinutes != null ? usage.weeklyWindowMinutes * 60_000 : null;
-
     const sessionPacing = usage.sessionPct == null
         ? null
         : calcPacing(usage.sessionPct, usage.sessionResetAt, sessionWindowMs);
@@ -1116,7 +1183,6 @@ export function codexUsageToPayload(usage: CodexUsageSnapshot): BarPayload {
         : calcPacing(usage.weeklyPct, usage.weeklyResetAt, weeklyWindowMs);
     const displayedPct = usage.weeklyPct ?? usage.sessionPct;
     const displayedPacing = weeklyPacing ?? sessionPacing;
-
     if (displayedPct == null || displayedPacing == null) {
         throw new Error("Codex usage missing rate-limit windows");
     }
@@ -1124,7 +1190,6 @@ export function codexUsageToPayload(usage: CodexUsageSnapshot): BarPayload {
     const cssClass = deriveCssClass(displayedPct, displayedPacing);
     const creditLabel = usage.resetCredits == null ? null : formatCredits(usage.resetCredits);
     const providerBadge = creditLabel == null ? "O" : `O(${creditLabel})`;
-
     const tooltipLines: string[] = [];
     const sessionSeverity = usage.sessionPct == null || sessionPacing == null
         ? ""
@@ -1139,9 +1204,7 @@ export function codexUsageToPayload(usage: CodexUsageSnapshot): BarPayload {
             percentage: usage.sessionPct,
             resetText: sessionCountdown,
             severity: sessionSeverity == "warning" || sessionSeverity == "critical" ? sessionSeverity : "normal",
-            pacing: sessionPacing == null
-                ? undefined
-                : { expectedPercentage: sessionPacing.timeElapsedPct },
+            pacing: sessionPacing == null ? undefined : { expectedPercentage: sessionPacing.timeElapsedPct },
         });
     }
     if (usage.weeklyPct != null) {
@@ -1150,24 +1213,19 @@ export function codexUsageToPayload(usage: CodexUsageSnapshot): BarPayload {
             percentage: usage.weeklyPct,
             resetText: weeklyCountdown,
             severity: weeklySeverity == "warning" || weeklySeverity == "critical" ? weeklySeverity : "normal",
-            pacing: weeklyPacing == null
-                ? undefined
-                : { expectedPercentage: weeklyPacing.timeElapsedPct },
+            pacing: weeklyPacing == null ? undefined : { expectedPercentage: weeklyPacing.timeElapsedPct },
         });
     }
-
     if (usage.sessionPct != null && sessionPacing != null) {
         tooltipLines.push(formatQuotaRow("Session", usage.sessionPct, sessionCountdown, sessionSeverity));
     } else {
         tooltipLines.push("Session unavailable");
     }
-
     if (usage.weeklyPct != null && weeklyPacing != null) {
         tooltipLines.push(formatQuotaRow("Week", usage.weeklyPct, weeklyCountdown, weeklySeverity));
     } else {
         tooltipLines.push("Week unavailable");
     }
-
     if (creditLabel != null) {
         tooltipLines.push(`Credits ${creditLabel}`);
     }
@@ -1177,6 +1235,7 @@ export function codexUsageToPayload(usage: CodexUsageSnapshot): BarPayload {
             `${displayedPacing.icon} ◉${displayedPct}% ⧖${displayedPacing.timeElapsedPct}%`,
             providerBadge),
         tooltip: tooltipLines.join("\n"),
+        accessState: "available",
         class: mergeClasses(cssClass, "provider-codex"),
         percentage: usage.sessionPct ?? usage.weeklyPct ?? undefined,
         percentageLabel: usage.sessionPct == null ? "Weekly" : "Session",
@@ -1191,15 +1250,15 @@ async function loadGrokCredentials(authPath: string): Promise<GrokCredentials> {
     try {
         parsed = JSON.parse(await readFile(authPath, "utf8"));
     } catch {
-        throw new GrokAuthenticationError(GROK_AUTH_ERROR);
+        throw new ProviderAccessError(GROK_AUTH_ERROR, { kind: "missing_credentials" });
     }
     if (!isRecord(parsed)) {
-        throw new GrokAuthenticationError(GROK_AUTH_ERROR);
+        throw new ProviderAccessError(GROK_AUTH_ERROR, { kind: "missing_credentials" });
     }
     const accessToken = toStringValue(parsed.accessToken);
     const refreshToken = toStringValue(parsed.refreshToken);
     if (!accessToken || !refreshToken) {
-        throw new GrokAuthenticationError(GROK_AUTH_ERROR);
+        throw new ProviderAccessError(GROK_AUTH_ERROR, { kind: "missing_credentials" });
     }
     return { accessToken, refreshToken };
 }
@@ -1333,6 +1392,7 @@ export function grokUsageToPayload(
     const cssClass = deriveCssClass(usage.weeklyPct, pacing);
     const weeklySeverity = cssClass == "warning" || cssClass == "critical" ? cssClass : "normal";
     const usageRows: UsageRow[] = [];
+    const tooltipLines: string[] = [];
     if (monthlyUsage != null) {
         const monthlyResetText = formatCountdown(monthlyUsage.monthlyResetAt);
         const monthlyWindowMs = (monthlyUsage.monthlyResetAt - monthlyUsage.monthlyStartAt) * 1000;
@@ -1358,6 +1418,8 @@ export function grokUsageToPayload(
                 pacing: { expectedPercentage: monthlyExpectedPercentage },
             },
         );
+    } else {
+        tooltipLines.push("Cursor monthly unavailable", "Other monthly unavailable");
     }
     usageRows.push({
         label: "GrokBot (Weekly)",
@@ -1366,16 +1428,22 @@ export function grokUsageToPayload(
         severity: weeklySeverity,
         pacing: { expectedPercentage: pacing.timeElapsedPct },
     });
+    tooltipLines.push(formatQuotaRow(
+        "Week",
+        usage.weeklyPct,
+        formatCountdown(usage.weeklyResetAt),
+        cssClass,
+    ));
     return stampPayload({
         text: addProviderBadge(
             `${pacing.icon} ◉${usage.weeklyPct}% ⧖${pacing.timeElapsedPct}%`,
             "X"),
-        tooltip: formatQuotaRow("Week", usage.weeklyPct, formatCountdown(usage.weeklyResetAt), cssClass),
+        tooltip: tooltipLines.join("\n"),
+        accessState: "available",
         class: mergeClasses(cssClass, "provider-grok"),
         percentage: usage.weeklyPct,
         percentageLabel: "Weekly",
         usageRows,
-        authenticationRequired: false,
     });
 }
 
@@ -1392,7 +1460,6 @@ export async function fetchGrokPayload(dependencies: GrokUsageDependencies = {})
         body: "{}",
         signal: AbortSignal.timeout(10_000),
     };
-
     let response: Response;
     try {
         response = await fetchImpl(dependencies.usageUrl ?? GROK_USAGE_URL, requestInit);
@@ -1400,12 +1467,15 @@ export async function fetchGrokPayload(dependencies: GrokUsageDependencies = {})
         throw new Error("Grok usage request failed");
     }
     if (response.status == 401) {
-        throw new GrokAuthenticationError(GROK_AUTH_ERROR);
+        throw new ProviderAccessError(GROK_AUTH_ERROR, {
+            kind: "http_status",
+            status: response.status,
+            authoritative: true,
+        });
     }
     if (!response.ok) {
         throw new Error(`Grok usage request failed (HTTP ${response.status})`);
     }
-
     let body: unknown;
     try {
         body = await response.json();
@@ -1413,7 +1483,6 @@ export async function fetchGrokPayload(dependencies: GrokUsageDependencies = {})
         throw new Error("Invalid Grok usage response");
     }
     const weeklyUsage = parseGrokUsage(body);
-
     let monthlyUsage: CursorMonthlyUsageSnapshot | undefined;
     try {
         const monthlyResponse = await fetchImpl(
@@ -1435,12 +1504,12 @@ export async function renderGrokPayload(
     try {
         return await fetchGrokPayload(dependencies);
     } catch (err) {
-        const message = err instanceof Error ? err.message : "Grok usage request failed";
+        const accessState = classifyProviderAccess(GROK_PROVIDER, providerAccessEvidence(err));
         return stampPayload({
             text: "⚠ X",
-            tooltip: message,
+            tooltip: accessState == "login_required" ? GROK_AUTH_ERROR : "Grok usage unavailable.",
+            accessState,
             class: ["error", "provider-grok"],
-            authenticationRequired: err instanceof GrokAuthenticationError ? true : undefined,
         });
     }
 }
@@ -1461,45 +1530,50 @@ async function loadClaudeOAuth(): Promise<ClaudeOAuth> {
         rawText = await readFile(CLAUDE_CREDS_PATH, "utf8");
     } catch {
         if (process.platform != "darwin") {
-            throw new Error("Missing ~/.claude/.credentials.json. Run: claude");
+            throw new ProviderAccessError(
+                "Missing ~/.claude/.credentials.json. Run: claude",
+                { kind: "missing_credentials" },
+            );
         }
-
         const result = await runCommand(
             "/usr/bin/security",
             ["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"],
             5_000,
         );
         if (result.code != 0 || !result.stdout.trim()) {
-            throw new Error("Missing Claude Code credentials in the macOS Keychain. Run: claude");
+            throw new ProviderAccessError(
+                "Missing Claude Code credentials in the macOS Keychain. Run: claude",
+                { kind: "missing_credentials" },
+            );
         }
         rawText = decodeMacOSKeychainSecret(result.stdout);
         storage = "keychain";
     }
-
     let parsed: unknown;
     try {
         parsed = JSON.parse(rawText);
     } catch {
         throw new Error("Invalid ~/.claude/.credentials.json JSON");
     }
-
     if (!isRecord(parsed)) {
         throw new Error("Unexpected ~/.claude/.credentials.json shape");
     }
-
     const oauth = readNestedRecord(parsed, "claudeAiOauth");
     if (!oauth) {
-        throw new Error("Missing claudeAiOauth in credentials. Run: claude");
+        throw new ProviderAccessError(
+            "Missing claudeAiOauth in credentials. Run: claude",
+            { kind: "missing_credentials" },
+        );
     }
-
     const accessToken = toStringValue(oauth.accessToken);
     const refreshToken = toStringValue(oauth.refreshToken);
     const expiresAtMs = toNumber(oauth.expiresAt);
-
     if (!accessToken) {
-        throw new Error("Missing Claude access token. Run: claude");
+        throw new ProviderAccessError(
+            "Missing Claude access token. Run: claude",
+            { kind: "missing_credentials" },
+        );
     }
-
     return {
         raw: parsed,
         oauth,
@@ -1551,6 +1625,19 @@ async function maybeRefreshClaudeToken(auth: ClaudeOAuth): Promise<ClaudeOAuth> 
     });
 
     if (!response.ok) {
+        let errorCode: string | null = null;
+        try {
+            const errorPayload = await response.json();
+            errorCode = isRecord(errorPayload) ? toStringValue(errorPayload.error) : null;
+        } catch {
+            // Only a validated OAuth error code is classification evidence.
+        }
+        if (errorCode) {
+            throw new ProviderAccessError("Claude token refresh failed.", {
+                kind: "oauth_error",
+                code: errorCode,
+            });
+        }
         throw new Error(`Claude token refresh failed: ${response.status}`);
     }
 
@@ -1591,21 +1678,22 @@ function parseEpochSecondsFromIso(value: string | null): number | null {
     return Math.round(ms / 1000);
 }
 
-async function readClaudeErrorMessage(response: Response): Promise<string | null> {
-    try {
-        const body = await response.json();
-        if (!isRecord(body)) {
-            return null;
-        }
 
-        const error = readNestedRecord(body, "error");
-        return toStringValue(error?.message) ?? toStringValue(body.message);
+async function claudeCliLoginEvidence(): Promise<ProviderAccessEvidence> {
+    try {
+        const result = await runCommand("claude", ["auth", "status"], 5_000);
+        if (result.code == 0) {
+            return { kind: "cli_login_present" };
+        }
+        return result.code == 1 ? { kind: "cli_login_absent" } : { kind: "generic_failure" };
     } catch {
-        return null;
+        return { kind: "generic_failure" };
     }
 }
 
+
 async function fetchClaudePayload(): Promise<BarPayload> {
+    const loaded = await loadClaudeOAuth();
     const activeBackoff = await loadClaudeBackoff();
     if (activeBackoff) {
         const cached = await fallbackToCachedClaudePayload(
@@ -1616,7 +1704,6 @@ async function fetchClaudePayload(): Promise<BarPayload> {
         }
     }
 
-    const loaded = await loadClaudeOAuth();
     const auth = await maybeRefreshClaudeToken(loaded);
 
     const response = await fetch(CLAUDE_USAGE_URL, {
@@ -1627,27 +1714,30 @@ async function fetchClaudePayload(): Promise<BarPayload> {
     });
 
     if (response.status == 429) {
-        const reason = await readClaudeErrorMessage(response) ?? "Rate limited. Please try again later.";
+        const reason = "Rate limited. Please try again later.";
         const retryAfterMs = Math.max(parseRetryAfterMs(response.headers.get("retry-after")) ?? 0, CLAUDE_MIN_BACKOFF_MS);
         const backoff = {
             retryAtMs: Date.now() + retryAfterMs,
             reason,
         };
         await saveClaudeBackoff(backoff);
-
         const cached = await fallbackToCachedClaudePayload(
             `Live refresh after ${formatLocalDateTime(backoff.retryAtMs)}\nReason: ${reason}`,
         );
         if (cached) {
             return cached;
         }
-
-        throw new Error(`Claude usage API 429: ${reason}`);
+        throw new Error("Claude usage is rate limited.");
     }
-
+    if (response.status == 401) {
+        throw new ProviderAccessError("Claude usage endpoint rejected the request.", {
+            kind: "http_status",
+            status: response.status,
+            authoritative: false,
+        });
+    }
     if (!response.ok) {
-        const message = await readClaudeErrorMessage(response);
-        throw new Error(message ? `Claude usage API ${response.status}: ${message}` : `Claude usage API ${response.status}`);
+        throw new Error(`Claude usage API ${response.status}`);
     }
 
     const body = await response.json();
@@ -1691,6 +1781,7 @@ async function fetchClaudePayload(): Promise<BarPayload> {
             formatQuotaRow("Session", sessionPct, sessionCountdown, sessionSeverity),
             formatQuotaRow("Week", weeklyPct, weeklyCountdown, cssClass),
         ].join("\n"),
+        accessState: "available",
         class: mergeClasses(cssClass, "provider-claude"),
         percentage: sessionPct,
         percentageLabel: "Session",
@@ -1717,34 +1808,13 @@ async function fetchClaudePayload(): Promise<BarPayload> {
     return payload;
 }
 
-function errorPayload(message: string, authenticationRequired = false): BarPayload {
+function errorPayload(message: string, accessState: ProviderAccessState = "unavailable"): BarPayload {
     return stampPayload({
         text: "⚠ cdx",
         tooltip: message,
+        accessState,
         class: "error",
-        authenticationRequired: authenticationRequired || undefined,
     });
-}
-
-export function providerAuthenticationRequired(provider: Provider, message: string): boolean {
-    const lower = message.toLowerCase();
-    if (lower.includes("unauthorized") || lower.includes("api 401") || lower.includes("http 401")) {
-        return true;
-    }
-    if (provider == CLAUDE_PROVIDER) {
-        return lower.includes("credentials")
-            || lower.includes("claudeaioauth")
-            || lower.includes("claude access token")
-            || lower.includes("run: claude");
-    }
-    if (provider == CODEX_PROVIDER) {
-        return lower.includes("auth.json")
-            || lower.includes("no tokens")
-            || lower.includes("codex access token")
-            || lower.includes("run: codex login")
-            || lower.includes("not logged in");
-    }
-    return false;
 }
 
 export function weeklyPacePercentagePoints(provider: Provider, payload: BarPayload): number | null {
@@ -1761,15 +1831,21 @@ async function renderClaudex(provider: Provider): Promise<BarPayload> {
         try {
             return await fetchClaudePayload();
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            const authenticationRequired = providerAuthenticationRequired(CLAUDE_PROVIDER, message);
-            if (!authenticationRequired) {
-                const cached = await fallbackToCachedClaudePayload(`Live fetch failed: ${message}`);
+            const evidence = [
+                providerAccessEvidence(err),
+                await claudeCliLoginEvidence(),
+            ];
+            const accessState = classifyProviderAccess(CLAUDE_PROVIDER, evidence);
+            if (accessState == "unavailable") {
+                const cached = await fallbackToCachedClaudePayload("Live fetch failed.");
                 if (cached) {
                     return cached;
                 }
             }
-            return errorPayload(`Claude failed: ${message}`, authenticationRequired);
+            const tooltip = accessState == "login_required"
+                ? "Claude login required. Use Login to reconnect Claude."
+                : "Claude usage unavailable.";
+            return errorPayload(tooltip, accessState);
         }
     }
 
@@ -1785,13 +1861,14 @@ async function renderClaudex(provider: Provider): Promise<BarPayload> {
             const usage = await fetchCodexUsageViaRpc();
             return codexUsageToPayload(usage);
         } catch (rpcErr) {
-            const oauthMessage = oauthErr instanceof Error ? oauthErr.message : String(oauthErr);
-            const rpcMessage = rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
-            const message = `Codex failed\nOAuth: ${oauthMessage}\nRPC: ${rpcMessage}`;
-            return errorPayload(
-                message,
-                providerAuthenticationRequired(CODEX_PROVIDER, message),
-            );
+            const accessState = classifyProviderAccess(CODEX_PROVIDER, [
+                providerAccessEvidence(oauthErr),
+                providerAccessEvidence(rpcErr),
+            ]);
+            const tooltip = accessState == "login_required"
+                ? "Codex login required. Use Login to reconnect Codex."
+                : "Codex usage unavailable.";
+            return errorPayload(tooltip, accessState);
         }
     }
 }
@@ -1806,6 +1883,22 @@ async function renderProviderPayload(provider: Provider): Promise<BarPayload> {
     return payload;
 }
 
+export function isCompactEligible(accessState: ProviderAccessState): boolean {
+    return accessState == "available" || accessState == "stale";
+}
+
+export function compactOutputPayload(payload: BarPayload): BarPayload {
+    if (isCompactEligible(payload.accessState)) {
+        return payload;
+    }
+    const {
+        percentage: _percentage,
+        percentageLabel: _percentageLabel,
+        ...compact
+    } = payload;
+    return { ...compact, text: "" };
+}
+
 export async function renderAllProviders(
     render: (provider: Provider) => Promise<BarPayload> = renderProviderPayload,
 ): Promise<AllProvidersPayload> {
@@ -1814,9 +1907,8 @@ export async function renderAllProviders(
         let payload: BarPayload;
         try {
             payload = await render(provider);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            payload = errorPayload(`${provider} failed: ${message}`);
+        } catch {
+            payload = errorPayload(`${provider} usage unavailable.`);
         }
         return {
             provider,
@@ -1880,12 +1972,11 @@ async function main(): Promise<void> {
     }
 
     const provider = await readProvider();
-    console.log(JSON.stringify(await renderProviderPayload(provider)));
+    console.log(JSON.stringify(compactOutputPayload(await renderProviderPayload(provider))));
 }
 
 if (import.meta.main) {
-    main().catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.log(JSON.stringify(errorPayload(message)));
+    main().catch(() => {
+        console.log(JSON.stringify(errorPayload("ClaudexBar usage unavailable.")));
     });
 }

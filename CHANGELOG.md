@@ -6,16 +6,17 @@
 
 - SpaceXAI (Grok) as a third provider on macOS and Linux, with explicit PKCE sign-in, atomically stored private credentials, Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly) usage/reset rows, bounded Cursor-backed requests, and redacted reconnect guidance.
 - Structured progress and reset rows in the macOS dropdown for every available OpenAI, Anthropic, and SpaceXAI quota window, with compact menu-bar summaries unchanged.
-- Expected-first macOS comparison meters with neutral shared usage, color limited to the pacing difference, and a compact signed delta; Linux retains paired actual and expected bars.
+- Expected-first comparison meters on macOS and Linux with neutral shared usage, color limited to the pacing difference, and a compact signed delta.
 - GTK 4 Linux dashboard matching the macOS three-card layout, with aggregate provider refresh, reconnect actions, Quattro command-widget integration, and optional Wayland layer-shell placement.
-- OpenAI reset-credit expiry dates on hover or click of the Reset credits row in the macOS dropdown, sourced through the supported local Codex app-server.
+- OpenAI reset-credit expiry dates and urgency on macOS and Linux, sourced through the supported local Codex app-server: cosmic orange within two weeks, red within one week, with qualifying expiries included in the dashboard notification center.
 - Weekly usage threshold colors for the macOS menu-bar provider letters: cosmic orange at 75% and red at 90%, without recoloring signed pace values.
 
 ### Fixed
 
-- Color only the macOS pacing difference: green below expected, cosmic orange when less than 10 percentage points above expected, and red at 10 points or more above expected.
-- Replaced inline unavailable-quota text in the macOS cards with one compact gray footer information control that explains the missing provider data.
-- Show the SpaceXAI sign-in action only when Grok credentials are missing or rejected; authenticated accounts no longer display a redundant reconnect button.
+- Color only the pacing difference on both dashboards: green below expected, cosmic orange when less than 10 percentage points above expected, and red at 10 points or more above expected.
+- Consolidated unavailable quota lines, expiring reset credits, and provider access states into one minimal notification center at the bottom of both dashboards.
+- Added one shared provider-access state across the engine, macOS, and Linux: providers without current or cached usage now leave full cards and compact counters; notification-center content remains available without competing with active subscriptions and can be cleared until any notice changes.
+- Show the SpaceXAI **Login** action only when Grok credentials are missing or rejected; authenticated accounts and unrelated failures no longer display a redundant action.
 - Use `X` as the SpaceXAI provider badge in the menu bar and detail view instead of the internal Grok initial `G`.
 - Removed reset countdowns from the compact bar summary. Session and weekly reset times remain in the detail view, including cached Claude usage.
 - Compacted the Linux Quattro detail tooltip while retaining session, weekly, reset, and refresh information.

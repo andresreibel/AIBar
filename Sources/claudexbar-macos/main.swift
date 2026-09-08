@@ -179,8 +179,13 @@ private final class ClaudexBarModel: ObservableObject {
             return errorMessage ?? "ClaudexBar"
         }
         return ClaudexBarProvider.dashboardOrder.map { provider in
-            let pace = aggregate.payload(for: provider)?.paceText ?? "--"
-            return "\(provider.displayName): \(pace) weekly pace"
+            guard let entry = aggregate.payload(for: provider) else {
+                return "\(provider.displayName): Usage unavailable"
+            }
+            if let status = entry.payload.accessState.statusLabel {
+                return "\(provider.displayName): \(status)"
+            }
+            return "\(provider.displayName): \(entry.paceText) weekly pace"
         }.joined(separator: "\n")
     }
 
@@ -234,11 +239,26 @@ private final class ClaudexBarModel: ObservableObject {
     }
 }
 
+private enum DashboardNoticeTone: String {
+    case neutral
+    case warning
+    case critical
+}
+
+private struct DashboardNotice: Identifiable {
+    let id: String
+    let title: String
+    let message: String
+    let tone: DashboardNoticeTone
+    let loginProvider: ClaudexBarProvider?
+}
+
 private struct ClaudexBarMenu: View {
     @ObservedObject var model: ClaudexBarModel
     @State private var showsResetCreditExpiries = false
     @State private var showsUsageGuide = false
-    @State private var unavailableDetailProvider: ClaudexBarProvider?
+    @State private var showsNotifications = false
+    @AppStorage("dismissedNotificationSignature") private var dismissedNotificationSignature = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -302,10 +322,16 @@ private struct ClaudexBarMenu: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                } else if model.aggregate != nil {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(ClaudexBarProvider.dashboardOrder, id: \.rawValue) { provider in
-                            providerColumn(provider)
+                } else if let aggregate = model.aggregate {
+                    VStack(alignment: .leading, spacing: 12) {
+                        let usageProviders = aggregate.compactEntries.map(\.provider)
+
+                        if !usageProviders.isEmpty {
+                            HStack(alignment: .top, spacing: 12) {
+                                ForEach(usageProviders, id: \.rawValue) { provider in
+                                    providerColumn(provider)
+                                }
+                            }
                         }
                     }
                 } else {
@@ -314,7 +340,7 @@ private struct ClaudexBarMenu: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             if let errorMessage = model.errorMessage {
                 Text(errorMessage)
@@ -323,6 +349,29 @@ private struct ClaudexBarMenu: View {
                     .lineLimit(2)
             }
 
+            if !dashboardNotices.isEmpty {
+                Button {
+                    showsNotifications.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("\(dashboardNotices.count) \(dashboardNotices.count == 1 ? "notice" : "notices")")
+                        Spacer()
+                        Text("Open")
+                        Image(systemName: "chevron.up")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 3)
+                    .frame(height: 20)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open notifications")
+                .popover(isPresented: $showsNotifications, arrowEdge: .bottom) {
+                    notificationPopover()
+                }
+            }
         }
         .padding(.top, 16)
         .padding(.horizontal, 16)
@@ -331,6 +380,134 @@ private struct ClaudexBarMenu: View {
         .task {
             await model.refresh()
         }
+        .onChange(of: notificationSignature, initial: true) { _, signature in
+            if signature.isEmpty || (
+                !dismissedNotificationSignature.isEmpty
+                    && signature != dismissedNotificationSignature
+            ) {
+                dismissedNotificationSignature = ""
+            }
+        }
+    }
+
+    private var accessWarningProviders: [ClaudexBarProvider] {
+        guard let aggregate = model.aggregate else { return [] }
+        return ClaudexBarProvider.dashboardOrder.filter {
+            aggregate.payload(for: $0)?.isCompactEligible != true
+        }
+    }
+
+
+    private var allDashboardNotices: [DashboardNotice] {
+        var notices = accessWarningProviders.map { provider in
+            let state = model.payload(for: provider)?.payload.accessState ?? .unavailable
+            return DashboardNotice(
+                id: "access-\(provider.rawValue)-\(state.rawValue)",
+                title: provider.displayName,
+                message: state.statusLabel ?? "Usage unavailable",
+                tone: state == .loginRequired || state == .subscriptionExpired ? .critical : .neutral,
+                loginProvider: state.showsLoginAction ? provider : nil
+            )
+        }
+
+        for provider in ClaudexBarProvider.dashboardOrder {
+            guard let payload = model.payload(for: provider)?.payload,
+                  payload.accessState.isCompactEligible else {
+                continue
+            }
+            let details = providerDetails(payload.macOSDetail)
+            for quota in details.unavailableQuotas {
+                notices.append(DashboardNotice(
+                    id: "quota-\(provider.rawValue)-\(quota)",
+                    title: "\(provider.displayName) \(quota.lowercased()) usage",
+                    message: "Unavailable from the provider response.",
+                    tone: .neutral,
+                    loginProvider: nil
+                ))
+            }
+            for (index, credit) in payload.resetCreditDetails.enumerated() {
+                guard let urgency = claudexBarExpiryUrgency(expiresAt: credit.expiresAt) else { continue }
+                notices.append(DashboardNotice(
+                    id: "credit-\(provider.rawValue)-\(index)-\(credit.expiresAt ?? 0)",
+                    title: "\(provider.displayName) reset credit",
+                    message: credit.expiryText,
+                    tone: urgency == .critical ? .critical : .warning,
+                    loginProvider: nil
+                ))
+            }
+        }
+        return notices
+    }
+
+    private var notificationSignature: String {
+        allDashboardNotices.map {
+            "\($0.id):\($0.tone.rawValue):\($0.message)"
+        }.joined(separator: "|")
+    }
+
+    private var dashboardNotices: [DashboardNotice] {
+        guard notificationSignature != dismissedNotificationSignature else { return [] }
+        return allDashboardNotices
+    }
+
+    @ViewBuilder
+    private func notificationPopover() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Notifications")
+                .font(.headline)
+
+            ForEach(dashboardNotices) { notice in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle()
+                        .fill(noticeColor(notice.tone))
+                        .frame(width: 5, height: 5)
+                        .padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(notice.title)
+                            .font(.caption.weight(.semibold))
+                        Text(notice.message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    if let provider = notice.loginProvider {
+                        Button("Login") {
+                            Task { await model.reconnect(provider) }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(model.isRefreshing)
+                    }
+                }
+            }
+
+            Divider()
+            HStack {
+                Spacer()
+                Button("Clear notifications") {
+                    dismissedNotificationSignature = notificationSignature
+                    showsNotifications = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(14)
+        .frame(width: 290, alignment: .leading)
+    }
+
+    private func noticeColor(_ tone: DashboardNoticeTone) -> Color {
+        switch tone {
+        case .neutral: .secondary
+        case .warning: cosmicOrange
+        case .critical: .red
+        }
+    }
+
+    private func resetCreditUrgency(_ payload: ClaudexBarPayload) -> ClaudexBarExpiryUrgency? {
+        payload.resetCreditDetails.compactMap {
+            claudexBarExpiryUrgency(expiresAt: $0.expiresAt)
+        }.max()
     }
 
     @ViewBuilder
@@ -351,135 +528,123 @@ private struct ClaudexBarMenu: View {
             }
 
             if let payload {
-                if payload.usageRows.isEmpty {
-                    if let percentage = payload.percentage {
-                        usageRow(
-                            label: payload.percentageLabel ?? "Usage",
-                            percentage: percentage,
-                            resetText: nil,
-                            pacing: nil,
-                            tint: usageColor(for: payload.severity)
-                        )
-                    }
-                } else {
-                    ForEach(Array(payload.usageRows.enumerated()), id: \.offset) { _, row in
-                        usageRow(
-                            label: row.label,
-                            percentage: row.percentage,
-                            resetText: row.resetText,
-                            pacing: row.pacing,
-                            tint: usageColor(for: row.severity)
-                        )
-                    }
-                }
-
-                if let credits = payload.resetCredits {
-                    Button {
-                        if !payload.resetCreditDetails.isEmpty {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                showsResetCreditExpiries.toggle()
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            Text("Reset credits")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(credits.formatted(.number.precision(.fractionLength(0...2))))
-                                .font(.system(.caption, design: .monospaced, weight: .semibold))
-                            if !payload.resetCreditDetails.isEmpty {
-                                Image(systemName: showsResetCreditExpiries ? "chevron.up" : "chevron.down")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .font(.caption2)
-                    .help(
-                        payload.resetCreditDetails.isEmpty
-                            ? "Expiry details unavailable"
-                            : payload.resetCreditDetails.map(\.displayText).joined(separator: "\n\n")
-                    )
-
-                    if showsResetCreditExpiries {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(Array(payload.resetCreditDetails.enumerated()), id: \.offset) { _, credit in
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(credit.title)
-                                        .fontWeight(.semibold)
-                                    Text(credit.expiryText)
-                                }
-                            }
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 4)
-                    }
-                }
-
-                let details = providerDetails(payload.macOSDetail)
-                if !details.visible.isEmpty {
-                    Text(details.visible)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(payload.severity == .error ? Color.red : Color.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(3)
+                if let status = payload.accessState.statusLabel {
+                    Text(status)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(accessStateColor(payload.accessState))
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if payload.authenticationRequired == true {
-                    Button("Reconnect") {
+                let details = providerDetails(payload.macOSDetail)
+                if payload.accessState.isCompactEligible {
+                    if payload.usageRows.isEmpty {
+                        if let percentage = payload.percentage {
+                            usageRow(
+                                label: payload.percentageLabel ?? "Usage",
+                                percentage: percentage,
+                                resetText: nil,
+                                pacing: nil,
+                                tint: usageColor(for: payload.severity)
+                            )
+                        }
+                    } else {
+                        ForEach(Array(payload.usageRows.enumerated()), id: \.offset) { _, row in
+                            usageRow(
+                                label: row.label,
+                                percentage: row.percentage,
+                                resetText: row.resetText,
+                                pacing: row.pacing,
+                                tint: usageColor(for: row.severity)
+                            )
+                        }
+                    }
+
+                    if let credits = payload.resetCredits {
+                        let creditUrgency = resetCreditUrgency(payload)
+                        Button {
+                            if !payload.resetCreditDetails.isEmpty {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    showsResetCreditExpiries.toggle()
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text("Reset credits")
+                                    .foregroundStyle(
+                                        creditUrgency.map {
+                                            noticeColor($0 == .critical ? .critical : .warning)
+                                        } ?? Color.secondary
+                                    )
+                                Spacer()
+                                Text(credits.formatted(.number.precision(.fractionLength(0...2))))
+                                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+                                    .foregroundStyle(
+                                        creditUrgency.map {
+                                            noticeColor($0 == .critical ? .critical : .warning)
+                                        } ?? Color.primary
+                                    )
+                                if !payload.resetCreditDetails.isEmpty {
+                                    Image(systemName: showsResetCreditExpiries ? "chevron.up" : "chevron.down")
+                                        .foregroundStyle(
+                                            creditUrgency.map {
+                                                noticeColor($0 == .critical ? .critical : .warning)
+                                            } ?? Color.secondary
+                                        )
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption2)
+                        .help(
+                            payload.resetCreditDetails.isEmpty
+                                ? "Expiry details unavailable"
+                                : payload.resetCreditDetails.map(\.displayText).joined(separator: "\n\n")
+                        )
+
+                        if showsResetCreditExpiries {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(Array(payload.resetCreditDetails.enumerated()), id: \.offset) { _, credit in
+                                    let urgency = claudexBarExpiryUrgency(expiresAt: credit.expiresAt)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(credit.title)
+                                            .fontWeight(.semibold)
+                                        Text(credit.expiryText)
+                                    }
+                                    .foregroundStyle(
+                                        urgency.map {
+                                            noticeColor($0 == .critical ? .critical : .warning)
+                                        } ?? Color.secondary
+                                    )
+                                }
+                            }
+                            .font(.caption2)
+                            .padding(.leading, 4)
+                        }
+                    }
+
+                    if !details.visible.isEmpty {
+                        Text(details.visible)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(payload.severity == .error ? Color.red : Color.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if let updatedTime = payload.updatedTimeText {
+                        Text("Updated \(updatedTime)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                } else if payload.accessState.showsLoginAction {
+                    Button("Login") {
                         Task { await model.reconnect(provider) }
                     }
                     .buttonStyle(.bordered)
                     .disabled(model.isRefreshing)
-                }
-
-                Spacer(minLength: 0)
-
-                if payload.updatedTimeText != nil || !details.unavailableQuotas.isEmpty {
-                    HStack(spacing: 6) {
-                        if let updatedTime = payload.updatedTimeText {
-                            Text("Updated \(updatedTime)")
-                        }
-                        Spacer(minLength: 0)
-                        if !details.unavailableQuotas.isEmpty {
-                            Button {
-                                unavailableDetailProvider = provider
-                            } label: {
-                                Image(systemName: "info.circle")
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.tertiary)
-                            .help("Why some usage is unavailable")
-                            .popover(
-                                isPresented: Binding(
-                                    get: { unavailableDetailProvider == provider },
-                                    set: { isPresented in
-                                        if !isPresented {
-                                            unavailableDetailProvider = nil
-                                        }
-                                    }
-                                ),
-                                arrowEdge: .bottom
-                            ) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("\(provider.displayName) usage unavailable")
-                                        .font(.headline)
-                                    ForEach(details.unavailableQuotas, id: \.self) { quota in
-                                        Text(unavailableQuotaExplanation(quota, provider: provider))
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
-                                .font(.caption)
-                                .padding(14)
-                                .frame(width: 260, alignment: .leading)
-                            }
-                        }
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
                 }
             } else {
                 Text("Loading usage…")
@@ -489,7 +654,7 @@ private struct ClaudexBarMenu: View {
             }
         }
         .padding(12)
-        .frame(width: 188, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -511,6 +676,10 @@ private struct ClaudexBarMenu: View {
                 unavailableQuotas.append("Session")
             case "Week unavailable", "Weekly unavailable":
                 unavailableQuotas.append("Weekly")
+            case "Cursor monthly unavailable":
+                unavailableQuotas.append("Cursor monthly")
+            case "Other monthly unavailable":
+                unavailableQuotas.append("Other monthly")
             default:
                 visibleLines.append(line)
             }
@@ -531,6 +700,14 @@ private struct ClaudexBarMenu: View {
         provider: ClaudexBarProvider
     ) -> String {
         "\(provider.displayName) did not provide \(quota.lowercased()) usage, so that quota is not shown."
+    }
+
+    private func accessStateColor(_ state: ClaudexBarAccessState) -> Color {
+        switch state {
+        case .loginRequired, .subscriptionExpired: .red
+        case .stale, .unavailable: cosmicOrange
+        case .available: .secondary
+        }
     }
 
     private func usageColor(for severity: ClaudexBarSeverity) -> Color {
@@ -746,10 +923,7 @@ private final class ClaudexBarAppDelegate: NSObject, NSApplicationDelegate, NSPo
             ]
         )
         if let aggregate {
-            let connected = ClaudexBarProvider.dashboardOrder.compactMap { provider -> ClaudexBarProviderPayload? in
-                guard let entry = aggregate.payload(for: provider), entry.isConnected else { return nil }
-                return entry
-            }
+            let connected = aggregate.compactEntries
             var location = 0
             for (index, entry) in connected.enumerated() {
                 if index > 0 {

@@ -18,11 +18,11 @@ The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI
 
 ## Features
 
-- Matching three-card Anthropic, OpenAI, and SpaceXAI dashboards on macOS and Linux.
-- Expected-first comparison meters on macOS keep shared usage neutral, color only the difference, and show a small signed delta; Linux retains paired actual and expected bars. Reset countdowns cover session and weekly windows, while SpaceXAI also shows Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly).
+- Matching Anthropic, OpenAI, and SpaceXAI dashboards on macOS and Linux, with full cards reserved for providers that have current or cached usage.
+- Expected-first comparison meters on macOS and Linux keep shared usage neutral, color only the difference, and show a small signed delta. Reset countdowns cover session and weekly windows, while SpaceXAI also shows Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly).
 - Signed weekly pace is `expected − actual`: negative means quota consumption is ahead of its linear allowance.
-- Disconnected providers show a **Reconnect** button in their dashboard column; the macOS menu-bar summary omits them until they reconnect.
-- OpenAI reset-credit count in both dashboards, with each available credit's expiry shown by hovering over or clicking the macOS Reset credits row.
+- Providers without current or cached usage leave the main card area and the macOS menu-bar and Omarchy compact counters. The slim notification control at the bottom of either dashboard includes their status and Login actions; **Clear notifications** hides the current set until its content changes.
+- OpenAI reset-credit count in both dashboards, with each available credit's expiry shown by hovering over or clicking the macOS Reset credits row. Credits expiring within two weeks turn cosmic orange; credits expiring within one week turn red. Both thresholds also create a notification.
 - Five-minute and manual refresh with a one-second minimum loading spinner on both dashboards, plus caching and rate-limit backoff.
 - Subtle per-provider last-updated time in both dashboards and the Linux tooltip.
 - Native macOS launch-at-login control.
@@ -47,7 +47,7 @@ A -1%  O +4%  S +39%
 
 Only the provider letter changes color based on the percentage of that provider's weekly limit already used: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. `S` uses the GrokBot Weekly limit, not either monthly Cursor bucket. The signed pace percentage keeps the native label color.
 
-The macOS popover and Linux dashboard both show all three providers in fixed Anthropic, OpenAI, SpaceXAI order. Each compact column retains the provider's available session, weekly, monthly, reset-credit, authentication, and refresh details. On macOS, Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. Missing quota text is replaced by one compact gray information control beside that provider's update time. Click it for the provider's explanation. Click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list. Linux retains separate actual and expected bars.
+The macOS popover and Linux dashboard use the same fixed Anthropic, OpenAI, SpaceXAI order while giving full card width only to providers with current or cached usage. Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. A slim **Open** control at the bottom opens one notification center for unavailable quota lines, expiring reset credits, and provider access states. On macOS, click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list.
 
 Linux retains its compact selectable bar display:
 
@@ -55,7 +55,7 @@ Linux retains its compact selectable bar display:
 O(1) → ◉1% ⧖1%
 ```
 
-`◉` is quota consumed, `⧖` is elapsed window time, and the arrow expresses the existing relative pacing severity. Hover shows the compact tooltip; click opens the matching three-card dashboard. The actual bar turns cosmic orange when usage is over expected and red when it is at least 10% over pace.
+`◉` is quota consumed, `⧖` is elapsed window time, and the arrow expresses the existing relative pacing severity. Hover shows the compact tooltip; click opens the matching three-card dashboard. In the dashboard, only the pacing difference turns green, cosmic orange, or red; red begins when actual usage is at least 10 percentage points above expected.
 
 Window lengths differ by provider. Codex reports its own window length. Claude's weekly window is seven days and resets on the account's assigned weekly schedule. SpaceXAI combines Cursor's monthly model buckets with Grok's weekly percentage and next reset time. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how each provider supplies this.
 
@@ -134,10 +134,10 @@ ClaudexBar keeps credentials outside the repository and application bundle. It r
 - Codex: `~/.codex/auth.json`.
 - Claude on Linux: `~/.claude/.credentials.json`.
 - Claude on macOS: the credentials file when present, otherwise the `Claude Code-credentials` Keychain item.
-- SpaceXAI: `~/.codex/claudexbar/grok-auth.json`, created with mode `0600` only after the explicit **Reconnect** action.
+- SpaceXAI: `~/.codex/claudexbar/grok-auth.json`, created with mode `0600` only after the explicit **Login** action.
 - Linux provider selection and per-provider caches: `~/.codex/claudexbar/`.
 
-The shared engine may refresh existing Codex or Claude OAuth credentials when required. SpaceXAI uses its own explicit PKCE sign-in and never opens a browser during normal refresh. On macOS, disconnected providers leave the menu-bar summary and show **Reconnect** in their column; authenticated and unrelated error states show no reconnect button. Some Anthropic organizations reject the OAuth usage endpoint with `403`; see [troubleshooting](docs/TROUBLESHOOTING.md).
+The shared engine may refresh existing Codex or Claude OAuth credentials when required. SpaceXAI uses its own explicit PKCE sign-in and never opens a browser during normal refresh. Both dashboards use the same provider states: **Login required** shows a **Login** action, **Subscription expired** shows no false login action, **Usage unavailable** preserves ordinary refresh behavior, and temporary Claude fallback is labelled as cached usage. Available and cached providers receive the full dashboard area. Other states appear only in the slim bottom notification center and are omitted from the macOS menu-bar and Omarchy counters. **Clear notifications** hides the current provider, quota, and expiring-credit notices until their content changes. Anthropic login state uses the documented `claude auth status` exit contract; the undocumented usage endpoint and observed `subscriptionType` field are not treated as subscription-entitlement signals. Bare `401`/`402`/`403`, network, rate-limit, and malformed-response failures are never called subscription expiry. See [troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Development
 

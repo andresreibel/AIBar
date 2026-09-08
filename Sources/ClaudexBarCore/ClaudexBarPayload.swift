@@ -32,6 +32,32 @@ public enum ClaudexBarSeverity: String, Codable, Sendable {
     case error
 }
 
+public enum ClaudexBarAccessState: String, Codable, Sendable {
+    case available
+    case stale
+    case unavailable
+    case loginRequired = "login_required"
+    case subscriptionExpired = "subscription_expired"
+
+    public var statusLabel: String? {
+        switch self {
+        case .available: nil
+        case .stale: "Temporarily unavailable — showing cached usage"
+        case .unavailable: "Usage unavailable"
+        case .loginRequired: "Login required"
+        case .subscriptionExpired: "Subscription expired"
+        }
+    }
+
+    public var showsLoginAction: Bool {
+        self == .loginRequired
+    }
+
+    public var isCompactEligible: Bool {
+        self == .available || self == .stale
+    }
+}
+
 public struct ClaudexBarUsagePacing: Decodable, Equatable, Sendable {
     public let expectedPercentage: Double
 }
@@ -60,6 +86,30 @@ public struct ClaudexBarResetCredit: Decodable, Equatable, Sendable {
     }
 }
 
+public enum ClaudexBarExpiryUrgency: Int, Comparable, Sendable {
+    case warning
+    case critical
+
+    public static func < (lhs: ClaudexBarExpiryUrgency, rhs: ClaudexBarExpiryUrgency) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+public func claudexBarExpiryUrgency(
+    expiresAt: Double?,
+    now: Double = Date().timeIntervalSince1970
+) -> ClaudexBarExpiryUrgency? {
+    guard let expiresAt, expiresAt.isFinite else { return nil }
+    let remaining = expiresAt - now
+    if remaining <= 7 * 24 * 60 * 60 {
+        return .critical
+    }
+    if remaining <= 14 * 24 * 60 * 60 {
+        return .warning
+    }
+    return nil
+}
+
 
 public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
     public let text: String
@@ -70,7 +120,7 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
     public let resetCredits: Double?
     public let resetCreditDetails: [ClaudexBarResetCredit]
     public let updatedAt: String?
-    public let authenticationRequired: Bool?
+    public let accessState: ClaudexBarAccessState
     public let usageRows: [ClaudexBarUsageRow]
 
     private enum CodingKeys: String, CodingKey {
@@ -82,7 +132,7 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
         case resetCredits
         case resetCreditDetails
         case updatedAt
-        case authenticationRequired
+        case accessState
         case usageRows
     }
 
@@ -95,7 +145,7 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
         resetCredits: Double? = nil,
         resetCreditDetails: [ClaudexBarResetCredit] = [],
         updatedAt: String? = nil,
-        authenticationRequired: Bool? = nil,
+        accessState: ClaudexBarAccessState = .available,
         usageRows: [ClaudexBarUsageRow] = []
     ) {
         self.text = text
@@ -106,7 +156,7 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
         self.resetCredits = resetCredits
         self.resetCreditDetails = resetCreditDetails
         self.updatedAt = updatedAt
-        self.authenticationRequired = authenticationRequired
+        self.accessState = accessState
         self.usageRows = usageRows
     }
 
@@ -122,7 +172,7 @@ public struct ClaudexBarPayload: Decodable, Equatable, Sendable {
             forKey: .resetCreditDetails
         ) ?? []
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
-        authenticationRequired = try container.decodeIfPresent(Bool.self, forKey: .authenticationRequired)
+        accessState = try container.decode(ClaudexBarAccessState.self, forKey: .accessState)
         usageRows = try container.decodeIfPresent([ClaudexBarUsageRow].self, forKey: .usageRows) ?? []
 
         if let values = try? container.decode([String].self, forKey: .classes) {
@@ -197,8 +247,8 @@ public struct ClaudexBarProviderPayload: Decodable, Equatable, Sendable {
     public let weeklyPace: Double?
     public let payload: ClaudexBarPayload
 
-    public var isConnected: Bool {
-        payload.authenticationRequired != true
+    public var isCompactEligible: Bool {
+        payload.accessState.isCompactEligible
     }
 
     public var paceText: String {
@@ -231,11 +281,15 @@ public struct ClaudexBarAggregatePayload: Decodable, Equatable, Sendable {
         providers.first { $0.provider == provider }
     }
 
-    public var menuBarText: String {
-        let connected = ClaudexBarProvider.dashboardOrder.compactMap { provider -> String? in
-            guard let entry = payload(for: provider), entry.isConnected else { return nil }
-            return entry.menuBarText
+    public var compactEntries: [ClaudexBarProviderPayload] {
+        ClaudexBarProvider.dashboardOrder.compactMap { provider in
+            guard let entry = payload(for: provider), entry.isCompactEligible else { return nil }
+            return entry
         }
-        return connected.isEmpty ? "ClaudexBar" : connected.joined(separator: "  ")
+    }
+
+    public var menuBarText: String {
+        let values = compactEntries.map(\.menuBarText)
+        return values.isEmpty ? "ClaudexBar" : values.joined(separator: "  ")
     }
 }
