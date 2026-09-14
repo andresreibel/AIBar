@@ -159,6 +159,7 @@ private final class AIBarModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isRefreshing = false
     @Published var hasLoaded = false
+    @Published var dropdownSize = AIBarPopoverLayout.preferredSize
 
     private var timer: Timer?
 
@@ -313,7 +314,7 @@ private struct AIBarMenu: View {
                 .help("Refresh all providers")
             }
 
-            Group {
+            ScrollView(.vertical) {
                 if model.isRefreshing || !model.hasLoaded {
                     VStack(spacing: 10) {
                         ProgressView()
@@ -327,7 +328,12 @@ private struct AIBarMenu: View {
                         let usageProviders = aggregate.compactEntries.map(\.provider)
 
                         if !usageProviders.isEmpty {
-                            HStack(alignment: .top, spacing: 12) {
+                            let columnCount = min(usageProviders.count, max(1, Int((model.dropdownSize.width - 20) / 192)))
+                            LazyVGrid(
+                                columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: columnCount),
+                                alignment: .leading,
+                                spacing: 12
+                            ) {
                                 ForEach(usageProviders, id: \.rawValue) { provider in
                                     providerColumn(provider)
                                 }
@@ -376,7 +382,7 @@ private struct AIBarMenu: View {
         .padding(.top, 16)
         .padding(.horizontal, 16)
         .padding(.bottom, 24)
-        .frame(width: 620, height: 450, alignment: .topLeading)
+        .frame(width: model.dropdownSize.width, height: model.dropdownSize.height, alignment: .topLeading)
         .task {
             await model.refresh()
         }
@@ -863,6 +869,8 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
     private let model = AIBarModel()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    // Reserve the arrow before the first presentation; measure actual chrome afterward.
+    private var popoverChrome = CGSize(width: 0, height: 24)
     private var lastStatusTitle = "A --  O --  S --"
     private var cancellables = Set<AnyCancellable>()
 
@@ -873,6 +881,13 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
         popover.animates = true
         popover.delegate = self
         popover.contentViewController = NSHostingController(rootView: AIBarMenu(model: model))
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersDidChange),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
 
         if let button = statusItem.button {
             button.target = self
@@ -895,7 +910,44 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            fitPopoverToScreen()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        if let window = popover.contentViewController?.view.window {
+            popoverChrome = CGSize(
+                width: max(0, window.frame.width - popover.contentSize.width),
+                height: max(0, window.frame.height - popover.contentSize.height)
+            )
+        }
+        fitPopoverToScreen()
+    }
+
+    @objc private func screenParametersDidChange() {
+        guard popover.isShown else { return }
+        // AppKit updates the status item's screen after the display notification.
+        DispatchQueue.main.async { [weak self] in
+            self?.fitPopoverToScreen()
+        }
+    }
+
+    private func fitPopoverToScreen() {
+        guard let screen = statusItem.button?.window?.screen else {
+            if popover.isShown { popover.performClose(nil) }
+            return
+        }
+        let size = AIBarPopoverLayout.contentSize(in: screen.visibleFrame, chrome: popoverChrome)
+        model.dropdownSize = size
+        popover.contentSize = size
+        guard popover.isShown else { return }
+        // Let the hosting view finish sizing before constraining the outer window.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.popover.isShown,
+                  let screen = self.statusItem.button?.window?.screen,
+                  let window = self.popover.contentViewController?.view.window else { return }
+            window.setFrameOrigin(AIBarPopoverLayout.origin(for: window.frame, in: screen.visibleFrame))
         }
     }
 
