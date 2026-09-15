@@ -160,6 +160,7 @@ private final class AIBarModel: ObservableObject {
     @Published var isRefreshing = false
     @Published var hasLoaded = false
     @Published var dropdownSize = AIBarPopoverLayout.preferredSize
+    @Published var dropdownPreferredHeight = AIBarPopoverLayout.preferredSize.height
 
     private var timer: Timer?
 
@@ -254,6 +255,22 @@ private struct DashboardNotice: Identifiable {
     let loginProvider: AIBarProvider?
 }
 
+private struct DropdownContentHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value += nextValue()
+    }
+}
+
+private extension View {
+    func measureDropdownHeight() -> some View {
+        background(GeometryReader { geometry in
+            Color.clear.preference(key: DropdownContentHeight.self, value: geometry.size.height)
+        })
+    }
+}
+
 private struct AIBarMenu: View {
     @ObservedObject var model: AIBarModel
     @State private var showsResetCreditExpiries = false
@@ -313,38 +330,42 @@ private struct AIBarMenu: View {
                 .disabled(model.isRefreshing)
                 .help("Refresh all providers")
             }
+            .measureDropdownHeight()
 
             ScrollView(.vertical) {
-                if model.isRefreshing || !model.hasLoaded {
-                    VStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.regular)
-                        Text("Loading usage…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if let aggregate = model.aggregate {
-                    VStack(alignment: .leading, spacing: 12) {
-                        let usageProviders = aggregate.compactEntries.map(\.provider)
+                VStack(alignment: .leading, spacing: 0) {
+                    if model.isRefreshing || !model.hasLoaded {
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .controlSize(.regular)
+                            Text("Loading usage…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let aggregate = model.aggregate {
+                        VStack(alignment: .leading, spacing: 12) {
+                            let usageProviders = aggregate.compactEntries.map(\.provider)
 
-                        if !usageProviders.isEmpty {
-                            let columnCount = min(usageProviders.count, max(1, Int((model.dropdownSize.width - 20) / 192)))
-                            LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: columnCount),
-                                alignment: .leading,
-                                spacing: 12
-                            ) {
-                                ForEach(usageProviders, id: \.rawValue) { provider in
-                                    providerColumn(provider)
+                            if !usageProviders.isEmpty {
+                                let columnCount = min(usageProviders.count, max(1, Int((model.dropdownSize.width - 20) / 192)))
+                                LazyVGrid(
+                                    columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: columnCount),
+                                    alignment: .leading,
+                                    spacing: 12
+                                ) {
+                                    ForEach(usageProviders, id: \.rawValue) { provider in
+                                        providerColumn(provider)
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        Text("Usage unavailable")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("Usage unavailable")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
+                .measureDropdownHeight()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
@@ -353,6 +374,7 @@ private struct AIBarMenu: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .lineLimit(2)
+                    .measureDropdownHeight()
             }
 
             if !dashboardNotices.isEmpty {
@@ -377,12 +399,18 @@ private struct AIBarMenu: View {
                 .popover(isPresented: $showsNotifications, arrowEdge: .bottom) {
                     notificationPopover()
                 }
+                .measureDropdownHeight()
             }
         }
         .padding(.top, 16)
         .padding(.horizontal, 16)
-        .padding(.bottom, 24)
+        .padding(.bottom, dashboardNotices.isEmpty ? 16 : 24)
         .frame(width: model.dropdownSize.width, height: model.dropdownSize.height, alignment: .topLeading)
+        .onPreferenceChange(DropdownContentHeight.self) { height in
+            let gaps = 1 + (model.errorMessage == nil ? 0 : 1) + (dashboardNotices.isEmpty ? 0 : 1)
+            let padding: CGFloat = 16 + (dashboardNotices.isEmpty ? 16 : 24)
+            model.dropdownPreferredHeight = ceil(height + CGFloat(gaps) * 16 + padding)
+        }
         .task {
             await model.refresh()
         }
@@ -902,6 +930,15 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
             }
             .store(in: &cancellables)
 
+        model.$dropdownPreferredHeight
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                // @Published delivers before the stored value changes.
+                DispatchQueue.main.async { self?.fitPopoverToScreen() }
+            }
+            .store(in: &cancellables)
+
         Task { await model.refresh() }
     }
 
@@ -938,7 +975,11 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
             if popover.isShown { popover.performClose(nil) }
             return
         }
-        let size = AIBarPopoverLayout.contentSize(in: screen.visibleFrame, chrome: popoverChrome)
+        let size = AIBarPopoverLayout.contentSize(
+            in: screen.visibleFrame,
+            chrome: popoverChrome,
+            preferredHeight: model.dropdownPreferredHeight
+        )
         model.dropdownSize = size
         popover.contentSize = size
         guard popover.isShown else { return }

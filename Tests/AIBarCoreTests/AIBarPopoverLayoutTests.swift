@@ -16,7 +16,7 @@ import Testing
     #expect(content == CGSize(width: 472, height: 352))
     let proposed = CGRect(x: -100, y: -500, width: content.width + chrome.width, height: content.height + chrome.height)
     let origin = AIBarPopoverLayout.origin(for: proposed, in: screen)
-    #expect(screen.insetBy(dx: 12, dy: 12).contains(CGRect(origin: origin, size: proposed.size)))
+    #expect(origin == CGPoint(x: -488, y: proposed.minY))
 }
 
 @Test func popoverCorrectsBothHorizontalEdges() {
@@ -27,10 +27,10 @@ import Testing
     #expect(AIBarPopoverLayout.origin(for: right, in: screen) == CGPoint(x: 808, y: 350))
 }
 
-@Test func popoverUsesTheSelectedDisplaysOriginAndUsableArea() {
+@Test func popoverPreservesNativeVerticalPlacement() {
     let screen = CGRect(x: -1920, y: 80, width: 1920, height: 980)
     let proposed = CGRect(x: -200, y: 950, width: 620, height: 474)
-    #expect(AIBarPopoverLayout.origin(for: proposed, in: screen) == CGPoint(x: -632, y: 574))
+    #expect(AIBarPopoverLayout.origin(for: proposed, in: screen) == CGPoint(x: -632, y: proposed.minY))
     let alreadyVisible = CGRect(x: -1500, y: 300, width: 620, height: 474)
     #expect(AIBarPopoverLayout.origin(for: alreadyVisible, in: screen) == alreadyVisible.origin)
 }
