@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { accessSync, constants, readdirSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
@@ -236,6 +237,75 @@ type JSONRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is JSONRecord {
     return typeof value == "object" && value != null && !Array.isArray(value);
+}
+
+function compareNodeVersions(left: string, right: string): number {
+    const parts = (version: string) => version.replace(/^v/, "").split(".").map((part) => {
+        const match = /^(\d+)/.exec(part);
+        return match ? Number(match[1]) : 0;
+    });
+    const leftParts = parts(left);
+    const rightParts = parts(right);
+    const length = Math.max(leftParts.length, rightParts.length);
+    for (let index = 0; index < length; index += 1) {
+        const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+        if (delta != 0) {
+            return delta;
+        }
+    }
+    return 0;
+}
+
+export function codexExecutableCandidates(
+    home: string,
+    pathValue: string,
+    nvmVersions: readonly string[],
+): string[] {
+    const pathHits = pathValue
+        .split(":")
+        .filter((dir) => dir.length > 0)
+        .map((dir) => `${dir}/codex`);
+    const nvmHits = [...nvmVersions]
+        .sort(compareNodeVersions)
+        .reverse()
+        .map((version) => `${home}/.nvm/versions/node/${version}/bin/codex`);
+    return [
+        ...pathHits,
+        ...nvmHits,
+        `${home}/.local/bin/codex`,
+        "/opt/homebrew/bin/codex",
+        "/usr/local/bin/codex",
+    ];
+}
+
+export function firstExecutable(
+    candidates: readonly string[],
+    isExecutable: (candidate: string) => boolean,
+): string | null {
+    return candidates.find((candidate) => isExecutable(candidate)) ?? null;
+}
+
+function resolveCodexExecutable(): string {
+    let nvmVersions: string[] = [];
+    try {
+        nvmVersions = readdirSync(`${HOME}/.nvm/versions/node`, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name);
+    } catch {
+        nvmVersions = [];
+    }
+
+    return firstExecutable(
+        codexExecutableCandidates(HOME, process.env.PATH ?? "", nvmVersions),
+        (candidate) => {
+            try {
+                accessSync(candidate, constants.X_OK);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+    ) ?? "codex";
 }
 
 function toNumber(value: unknown): number | null {
@@ -988,7 +1058,7 @@ async function fetchCodexUsageViaOAuth(): Promise<CodexUsageSnapshot> {
 
 async function fetchCodexRateLimitsViaRpc(): Promise<JSONRecord> {
     return new Promise<JSONRecord>((resolve, reject) => {
-        const child = spawn("codex", ["-s", "read-only", "-a", "never", "app-server"], {
+        const child = spawn(resolveCodexExecutable(), ["-s", "read-only", "-a", "never", "app-server"], {
             stdio: ["pipe", "pipe", "pipe"],
         });
 

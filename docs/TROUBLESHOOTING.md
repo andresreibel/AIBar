@@ -43,7 +43,7 @@ During temporary Claude failures or `429` backoff, AIBar reuses the last valid C
 
 ## Reset credit expiry notices
 
-An available OpenAI reset credit turns cosmic orange when it expires within 14 days and red when it expires within 7 days. The same expiry appears in the bottom notification center. If the count is available but no expiry details are returned by the local Codex app-server, AIBar keeps the count neutral and does not invent a deadline.
+An available OpenAI reset credit turns cosmic orange when it expires within 14 days and red when it expires within 7 days. The same expiry appears in the bottom notification center. If the count is available but no expiry details are returned by the local Codex app-server, AIBar keeps the count neutral, hides the disclosure chevron, and does not invent a deadline. The macOS app does not inherit a login-shell PATH, so that lookup resolves `codex` from nvm, `~/.local/bin`, Homebrew, and `/usr/local/bin` when the menu bar PATH misses it.
 
 ## Omarchy Quattro bar is missing or stale
 

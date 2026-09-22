@@ -9,8 +9,10 @@ import {
     classifyProviderAccess,
     codexUsageToPayload,
     compactLegacyTooltip,
+    codexExecutableCandidates,
     compactOutputPayload,
     decodeMacOSKeychainSecret,
+    firstExecutable,
     enrichCodexUsageWithResetCredits,
     fetchGrokPayload,
     formatCredits,
@@ -276,6 +278,34 @@ describe("parseCodexResetCreditDetails", () => {
             { title: "Full reset", expiresAt: 1_900_000_000 },
             { title: "Expiry pending", expiresAt: null },
         ]);
+    });
+});
+
+describe("Codex executable lookup", () => {
+    test("uses the newest nvm install when the menu bar PATH does not contain codex", () => {
+        const home = "/Users/master";
+        const candidates = codexExecutableCandidates(home, "/usr/bin:/bin:/usr/sbin:/sbin", [
+            "v22.9.0",
+            "v23.11.0",
+            "v9.1.0",
+        ]);
+        const executable = firstExecutable(candidates, (candidate) =>
+            candidate == `${home}/.nvm/versions/node/v23.11.0/bin/codex`);
+
+        expect(executable).toBe(`${home}/.nvm/versions/node/v23.11.0/bin/codex`);
+    });
+
+    test("prefers a codex binary already on PATH", () => {
+        const candidates = codexExecutableCandidates("/Users/master", "/opt/homebrew/bin:/usr/bin", ["v23.11.0"]);
+        const executable = firstExecutable(candidates, (candidate) => candidate == "/opt/homebrew/bin/codex");
+
+        expect(executable).toBe("/opt/homebrew/bin/codex");
+    });
+
+    test("returns null when no candidate is executable", () => {
+        const candidates = codexExecutableCandidates("/Users/master", "/usr/bin", []);
+
+        expect(firstExecutable(candidates, () => false)).toBeNull();
     });
 });
 
