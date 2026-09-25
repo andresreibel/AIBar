@@ -4,6 +4,7 @@
 
 ### Added
 
+- A pool selector on macOS and Linux for providers with more than one usage pool. The menu bar keeps one pool per provider, uses the weekly pool until you choose, and saves that choice in `~/.codex/aibar/menu-bar-rows.json`. macOS updates the bar as soon as you select. The Linux bar reads the same file on its next one-second run.
 - SpaceXAI (Grok) as a third provider on macOS and Linux, with explicit PKCE sign-in, atomically stored private credentials, Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly) usage/reset rows, bounded Cursor-backed requests, and redacted reconnect guidance.
 - Structured progress and reset rows in the macOS dropdown for every available OpenAI, Anthropic, and SpaceXAI quota window, with compact menu-bar summaries unchanged.
 - Expected-first comparison meters on macOS and Linux with neutral shared usage, color limited to the pacing difference, and a compact signed delta.

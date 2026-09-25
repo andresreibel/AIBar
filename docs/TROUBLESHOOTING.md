@@ -47,7 +47,7 @@ An available OpenAI reset credit turns cosmic orange when it expires within 14 d
 
 ## Omarchy Quattro bar is missing or stale
 
-Ensure `~/.config/omarchy/shell.json` contains the documented `aibar` command widget with `"interval": 1`. The widget runs the installed engine every second, but the engine only fetches live usage about once per five minutes. Source updates take effect on the next run; restart the Omarchy shell only after changing the widget configuration.
+Ensure `~/.config/omarchy/shell.json` contains the documented `aibar` command widget with `"interval": 1`. The widget runs the installed engine every second, but the engine only fetches live usage about once per five minutes. A newly selected pool is stored in `~/.codex/aibar/menu-bar-rows.json` and appears on the next read. Source updates take effect on the next run after `./install.sh`. Restart the Omarchy shell only after changing the widget configuration.
 
 ## Linux dashboard does not open
 

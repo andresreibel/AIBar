@@ -46,6 +46,7 @@ const CLAUDE_MIN_BACKOFF_MS = 15 * 60 * 1000;
 // provider unless it has gone stale.
 const RENDER_CACHE_TTL_MS = 5 * 60 * 1000;
 const RENDER_CACHE_ERROR_TTL_MS = 30 * 1000;
+const MENU_BAR_ROWS_PATH = `${STATE_DIR}/menu-bar-rows.json`;
 
 function renderCachePath(provider: Provider): string {
     return `${STATE_DIR}/render-${provider}.json`;
@@ -75,6 +76,7 @@ type Args = {
     loginGrok: boolean;
     allProviders: boolean;
     barSummary: boolean;
+    toggleMenuBarRow: { provider: Provider; label: string } | null;
 };
 
 type UsageRowPacing = {
@@ -107,12 +109,26 @@ export type BarPayload = {
     usageRows?: UsageRow[];
 };
 
+export type MenuBarSegment = {
+    provider: Provider;
+    label: string;
+    text: string;
+    severity: "normal" | "warning" | "critical";
+};
+
+export type MenuBarSummary = {
+    text: string;
+    rows: string[];
+    segments: MenuBarSegment[];
+};
+
 export type AllProvidersPayload = {
     providers: Array<{
         provider: Provider;
         weeklyPace: number | null;
         payload: BarPayload;
     }>;
+    menuBar?: MenuBarSummary;
 };
 
 type SpawnResult = {
@@ -352,6 +368,7 @@ function parseArgs(argv: string[]): Args {
     let loginGrok = false;
     let allProviders = false;
     let barSummary = false;
+    let toggleMenuBarRow: Args["toggleMenuBarRow"] = null;
 
     for (let idx = 0; idx < argv.length; idx += 1) {
         const arg = argv[idx];
@@ -361,6 +378,16 @@ function parseArgs(argv: string[]): Args {
         }
         if (arg == "--bar") {
             barSummary = true;
+            continue;
+        }
+        if (arg == "--toggle-menu-bar-row") {
+            const provider = argv[idx + 1];
+            const label = argv[idx + 2];
+            if ((provider == CLAUDE_PROVIDER || provider == CODEX_PROVIDER || provider == GROK_PROVIDER)
+                && label) {
+                toggleMenuBarRow = { provider, label };
+            }
+            idx += 2;
             continue;
         }
         if (arg == "--toggle") {
@@ -388,11 +415,25 @@ function parseArgs(argv: string[]): Args {
         loginGrok,
         allProviders,
         barSummary,
+        toggleMenuBarRow,
     };
 }
 
 async function ensureStateDir(): Promise<void> {
     await mkdir(STATE_DIR, { recursive: true });
+}
+
+async function readMenuBarRows(): Promise<string[] | null> {
+    const parsed = await readJsonFile(MENU_BAR_ROWS_PATH);
+    if (!isRecord(parsed) || !Array.isArray(parsed.rows)) {
+        return null;
+    }
+    const rows = parsed.rows.filter((row): row is string => typeof row == "string" && row.includes(":"));
+    return rows.length == parsed.rows.length ? [...new Set(rows)] : null;
+}
+
+async function writeMenuBarRows(rows: string[]): Promise<void> {
+    await writeJsonFile(MENU_BAR_ROWS_PATH, { rows });
 }
 
 async function readProvider(): Promise<Provider> {
@@ -1978,6 +2019,7 @@ export function compactOutputPayload(payload: BarPayload): BarPayload {
 
 export async function renderAllProviders(
     render: (provider: Provider) => Promise<BarPayload> = renderProviderPayload,
+    savedMenuBarRows: string[] | null = null,
 ): Promise<AllProvidersPayload> {
     const order: Provider[] = [CLAUDE_PROVIDER, CODEX_PROVIDER, GROK_PROVIDER];
     const providers = await Promise.all(order.map(async (provider) => {
@@ -1993,7 +2035,10 @@ export async function renderAllProviders(
             payload,
         };
     }));
-    return { providers };
+    return {
+        providers,
+        menuBar: buildMenuBar(providers, savedMenuBarRows),
+    };
 }
 
 const PROVIDER_BADGES: Record<Provider, string> = {
@@ -2002,17 +2047,126 @@ const PROVIDER_BADGES: Record<Provider, string> = {
     grok: "S",
 };
 
-export function menuBarOutputPayload(aggregate: AllProvidersPayload): BarPayload {
-    const entries = aggregate.providers.filter(({ payload }) => isCompactEligible(payload.accessState));
-    const text = entries.map(({ provider, weeklyPace }) => {
-        const pace = weeklyPace == null
+export function menuBarRowKey(provider: string, label: string): string {
+    return `${provider}:${label}`;
+}
+
+function menuBarKeyProvider(key: string): string {
+    const splitAt = key.indexOf(":");
+    return splitAt < 0 ? "" : key.slice(0, splitAt);
+}
+
+function menuBarKeyLabel(key: string): string {
+    const splitAt = key.indexOf(":");
+    return splitAt < 0 ? "" : key.slice(splitAt + 1);
+}
+
+function chosenUsageRow(
+    provider: string,
+    rows: readonly UsageRow[],
+    savedRows: readonly string[] | null,
+): UsageRow | null {
+    if (rows.length == 0) {
+        return null;
+    }
+    const savedKey = [...(savedRows ?? [])]
+        .reverse()
+        .find((key) => menuBarKeyProvider(key) == provider
+            && rows.some((row) => row.label == menuBarKeyLabel(key)));
+    if (savedKey) {
+        return rows.find((row) => row.label == menuBarKeyLabel(savedKey)) ?? null;
+    }
+    return rows.find((row) => isDefaultMenuBarRow(row.label)) ?? rows[0];
+}
+
+export function isDefaultMenuBarRow(label: string): boolean {
+    return label == "Weekly" || label == "GrokBot (Weekly)";
+}
+
+export function defaultMenuBarRows(
+    providers: readonly { provider: string; payload: BarPayload }[],
+): string[] {
+    const rows: string[] = [];
+    for (const provider of [CLAUDE_PROVIDER, CODEX_PROVIDER, GROK_PROVIDER]) {
+        const entry = providers.find((candidate) => candidate.provider == provider);
+        if (!entry || !isCompactEligible(entry.payload.accessState)) {
+            continue;
+        }
+        for (const row of entry.payload.usageRows ?? []) {
+            if (isDefaultMenuBarRow(row.label)) {
+                rows.push(menuBarRowKey(provider, row.label));
+            }
+        }
+    }
+    return rows;
+}
+
+export function selectMenuBarRow(
+    savedRows: readonly string[] | null,
+    providers: readonly { provider: string; payload: BarPayload }[],
+    provider: string,
+    label: string,
+): string[] {
+    const chosen = new Map<string, string>();
+    for (const key of savedRows ?? defaultMenuBarRows(providers)) {
+        const savedProvider = menuBarKeyProvider(key);
+        if (savedProvider) {
+            chosen.set(savedProvider, key);
+        }
+    }
+    chosen.set(provider, menuBarRowKey(provider, label));
+    return [CLAUDE_PROVIDER, CODEX_PROVIDER, GROK_PROVIDER]
+        .flatMap((name) => {
+            const key = chosen.get(name);
+            return key ? [key] : [];
+        });
+}
+
+export function buildMenuBar(
+    providers: readonly { provider: Provider; payload: BarPayload }[],
+    savedRows: readonly string[] | null,
+): MenuBarSummary {
+    const segments: MenuBarSegment[] = [];
+
+    for (const provider of [CLAUDE_PROVIDER, CODEX_PROVIDER, GROK_PROVIDER]) {
+        const entry = providers.find((candidate) => candidate.provider == provider);
+        if (!entry || !isCompactEligible(entry.payload.accessState)) {
+            continue;
+        }
+        const row = chosenUsageRow(provider, entry.payload.usageRows ?? [], savedRows);
+        if (!row) {
+            continue;
+        }
+        const pace = row.pacing == null
             ? "--"
-            : `${weeklyPace > 0 ? "+" : ""}${Math.round(weeklyPace)}%`;
-        return `${PROVIDER_BADGES[provider]} ${pace}`;
-    }).join("  ");
+            : `${Math.round(row.pacing.expectedPercentage - row.percentage)}`;
+        const paceText = pace == "--" ? pace : `${Number(pace) > 0 ? "+" : ""}${pace}%`;
+        const severity = row.percentage >= 90
+            ? "critical"
+            : row.percentage >= 75
+                ? "warning"
+                : "normal";
+        segments.push({
+            provider,
+            label: row.label,
+            text: `${PROVIDER_BADGES[provider]} ${paceText}`,
+            severity,
+        });
+    }
 
     return {
-        text: text || "AIBar",
+        text: segments.length > 0 ? segments.map((segment) => segment.text).join("  ") : "AIBar",
+        rows: segments.map((segment) => menuBarRowKey(segment.provider, segment.label)),
+        segments,
+    };
+}
+
+export function menuBarOutputPayload(aggregate: AllProvidersPayload): BarPayload {
+    const entries = aggregate.providers.filter(({ payload }) => isCompactEligible(payload.accessState));
+    const summary = aggregate.menuBar ?? buildMenuBar(aggregate.providers, null);
+
+    return {
+        text: summary.text,
         tooltip: aggregate.providers.map(({ payload }) => payload.tooltip).filter(Boolean).join("\n\n") || "AIBar",
         accessState: entries.some(({ payload }) => payload.accessState == "available")
             ? "available"
@@ -2047,12 +2201,41 @@ async function main(): Promise<void> {
         return;
     }
 
+    if (args.toggleMenuBarRow) {
+        const savedRows = await readMenuBarRows();
+        const providers: AllProvidersPayload["providers"] = [];
+        for (const provider of [CLAUDE_PROVIDER, CODEX_PROVIDER, GROK_PROVIDER]) {
+            const cached = await readJsonFile(renderCachePath(provider));
+            const payload = isRecord(cached) ? normalizeBarPayload(cached.payload) : null;
+            if (payload && isRenderCacheCompatible(provider, payload)) {
+                providers.push({
+                    provider,
+                    weeklyPace: weeklyPacePercentagePoints(provider, payload),
+                    payload,
+                });
+            }
+        }
+        const rows = selectMenuBarRow(
+            savedRows,
+            providers,
+            args.toggleMenuBarRow.provider,
+            args.toggleMenuBarRow.label,
+        );
+        await writeMenuBarRows(rows);
+        console.log(JSON.stringify(buildMenuBar(providers, rows)));
+        return;
+    }
+
     if (args.barSummary) {
-        console.log(JSON.stringify(menuBarOutputPayload(await renderAllProviders())));
+        const aggregate = await renderAllProviders();
+        aggregate.menuBar = buildMenuBar(aggregate.providers, await readMenuBarRows());
+        console.log(JSON.stringify(menuBarOutputPayload(aggregate)));
         return;
     }
     if (args.allProviders) {
-        console.log(JSON.stringify(await renderAllProviders()));
+        const aggregate = await renderAllProviders();
+        aggregate.menuBar = buildMenuBar(aggregate.providers, await readMenuBarRows());
+        console.log(JSON.stringify(aggregate));
         return;
     }
 

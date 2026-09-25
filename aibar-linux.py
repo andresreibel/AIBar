@@ -106,6 +106,11 @@ menubutton.warning-button > button {
 }
 .credits-label.credits-warning, .credits-value.credits-warning { color: #ff9e64; }
 .credits-label.credits-critical, .credits-value.credits-critical { color: #f7768e; }
+checkbutton.menu-bar-toggle {
+  padding: 0;
+  min-width: 16px;
+  min-height: 16px;
+}
 .usage-label, .usage-value, .delta-value, .credits-label, .credits-value {
   color: #c5c5cb;
   font-size: 12px;
@@ -379,6 +384,9 @@ class ProviderCard(Gtk.Box):
         self.provider = provider
         self.reconnect = reconnect
         self.compact = False
+        self.menu_bar_rows = set()
+        self.menu_bar_group = None
+        self.on_menu_bar_toggle = None
         self.add_css_class("provider-card")
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -391,9 +399,11 @@ class ProviderCard(Gtk.Box):
             self.remove(child)
             child = next_child
 
-    def render(self, entry):
+    def render(self, entry, menu_bar_rows=None, on_menu_bar_toggle=None):
         self.clear()
         self.compact = False
+        self.menu_bar_rows = set(menu_bar_rows or [])
+        self.on_menu_bar_toggle = on_menu_bar_toggle
         self.remove_css_class("access-card")
         self.add_css_class("provider-card")
         self.set_vexpand(True)
@@ -441,9 +451,11 @@ class ProviderCard(Gtk.Box):
             return
 
 
+        self.menu_bar_group = None
+        show_selector = len(rows) > 1
         if rows:
             for row in rows:
-                self.append(self.usage_row(row))
+                self.append(self.usage_row(row, show_selector))
         elif payload.get("percentage") is not None:
             self.append(self.usage_row({
                 "label": payload.get("percentageLabel") or "Usage",
@@ -491,7 +503,7 @@ class ProviderCard(Gtk.Box):
         classes = classes or []
         return next((value for value in ("error", "critical", "warning", "stale") if value in classes), "normal")
 
-    def usage_row(self, row):
+    def usage_row(self, row, show_selector=False):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         actual = float(row.get("percentage", 0))
         pacing = row.get("pacing")
@@ -512,8 +524,26 @@ class ProviderCard(Gtk.Box):
             box.append(expected_heading)
             box.append(self.comparison_meter(actual, expected, "expected"))
 
-        heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        label = Gtk.Label(label=compact_label(str(row.get("label") or "Usage")), xalign=0, hexpand=True)
+        heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pool_label = str(row.get("label") or "Usage")
+        if show_selector:
+            check = Gtk.CheckButton()
+            check.add_css_class("menu-bar-toggle")
+            check.set_tooltip_text("Use this pool in the menu bar")
+            if self.menu_bar_group is not None:
+                check.set_group(self.menu_bar_group)
+            else:
+                self.menu_bar_group = check
+            check.set_active(f"{self.provider}:{pool_label}" in self.menu_bar_rows)
+            if self.on_menu_bar_toggle is not None:
+                check.connect(
+                    "toggled",
+                    lambda button, label=pool_label: (
+                        self.on_menu_bar_toggle(self.provider, label) if button.get_active() else None
+                    ),
+                )
+            heading.append(check)
+        label = Gtk.Label(label=compact_label(pool_label), xalign=0, hexpand=True)
         label.set_ellipsize(3)
         label.add_css_class("usage-label")
         heading.append(label)
@@ -594,6 +624,8 @@ class DashboardWindow(Gtk.ApplicationWindow):
             self.dismissed_notification_signature = ""
         self.current_notification_signature = ""
         self.latest_entries = {}
+        self.menu_bar_rows = []
+        self.menu_bar_updating = False
         self.set_default_size(620, 450)
         self.set_resizable(False)
         self.add_css_class("aibar-window")
@@ -743,10 +775,9 @@ class DashboardWindow(Gtk.ApplicationWindow):
                 timeout=45,
             )
             aggregate = json.loads(result.stdout)
-            providers = aggregate.get("providers")
-            if not isinstance(providers, list):
+            if not isinstance(aggregate, dict) or not isinstance(aggregate.get("providers"), list):
                 raise ValueError("aggregate payload has no providers list")
-            self.finish_after_minimum_delay(started_at, self.finish_refresh, providers)
+            self.finish_after_minimum_delay(started_at, self.finish_refresh, aggregate)
         except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError) as error:
             self.finish_after_minimum_delay(started_at, self.finish_error, f"Refresh failed: {error}")
 
@@ -894,25 +925,69 @@ class DashboardWindow(Gtk.ApplicationWindow):
         popover.popdown()
         self.update_notification_center(self.latest_entries)
 
-    def finish_refresh(self, providers):
+    def finish_refresh(self, aggregate):
+        providers = aggregate.get("providers") or []
+        menu_bar = aggregate.get("menuBar") if isinstance(aggregate.get("menuBar"), dict) else {}
+        self.menu_bar_rows = list(menu_bar.get("rows") or [])
         entries = {entry.get("provider"): entry for entry in providers if isinstance(entry, dict)}
         self.latest_entries = entries
         self.update_notification_center(entries)
-        usage_count = 0
-        for provider, card in self.cards.items():
-            parent = card.get_parent()
-            if parent is not None:
-                parent.remove(card)
-            card.render(entries.get(provider))
-            if not card.compact:
-                self.usage_cards.append(card)
-                usage_count += 1
-        self.usage_cards.set_visible(usage_count > 0)
+        self.render_cards()
         self.has_payload = True
         self.loading_spinner.stop()
         self.content_stack.set_visible_child_name("cards")
         self.refreshing = False
         self.refresh_button.set_sensitive(True)
+        return GLib.SOURCE_REMOVE
+
+    def render_cards(self):
+        usage_count = 0
+        for provider, card in self.cards.items():
+            parent = card.get_parent()
+            if parent is not None:
+                parent.remove(card)
+            card.render(self.latest_entries.get(provider), self.menu_bar_rows, self.toggle_menu_bar_row)
+            if not card.compact:
+                self.usage_cards.append(card)
+                usage_count += 1
+        self.usage_cards.set_visible(usage_count > 0)
+
+    def toggle_menu_bar_row(self, provider, label):
+        if self.menu_bar_updating:
+            return
+        self.menu_bar_updating = True
+        threading.Thread(
+            target=self.load_menu_bar_toggle,
+            args=(provider, label),
+            daemon=True,
+        ).start()
+
+    def load_menu_bar_toggle(self, provider, label):
+        bun = find_bun()
+        engine = find_engine()
+        if bun is None or engine is None:
+            GLib.idle_add(self.finish_menu_bar_toggle, None)
+            return
+        try:
+            result = subprocess.run(
+                [bun, engine, "--toggle-menu-bar-row", provider, label],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            summary = json.loads(result.stdout)
+            if not isinstance(summary, dict) or not isinstance(summary.get("rows"), list):
+                raise ValueError("menu bar selection missing")
+            GLib.idle_add(self.finish_menu_bar_toggle, summary)
+        except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+            GLib.idle_add(self.finish_menu_bar_toggle, None)
+
+    def finish_menu_bar_toggle(self, summary):
+        if isinstance(summary, dict):
+            self.menu_bar_rows = list(summary.get("rows") or [])
+        self.menu_bar_updating = False
+        self.render_cards()
         return GLib.SOURCE_REMOVE
 
     def finish_error(self, message):

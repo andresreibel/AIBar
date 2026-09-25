@@ -242,6 +242,28 @@ public struct AIBarPayload: Decodable, Equatable, Sendable {
     }
 }
 
+public struct AIBarMenuBarSegment: Decodable, Equatable, Sendable {
+    public let text: String
+    public let severity: AIBarSeverity
+
+    public init(text: String, severity: AIBarSeverity) {
+        self.text = text
+        self.severity = severity
+    }
+}
+
+public struct AIBarMenuBar: Decodable, Equatable, Sendable {
+    public let text: String
+    public let rows: [String]
+    public let segments: [AIBarMenuBarSegment]
+
+    public init(text: String, rows: [String], segments: [AIBarMenuBarSegment]) {
+        self.text = text
+        self.rows = rows
+        self.segments = segments
+    }
+}
+
 public struct AIBarProviderPayload: Decodable, Equatable, Sendable {
     public let provider: AIBarProvider
     public let weeklyPace: Double?
@@ -276,9 +298,69 @@ public struct AIBarProviderPayload: Decodable, Equatable, Sendable {
 
 public struct AIBarAggregatePayload: Decodable, Equatable, Sendable {
     public let providers: [AIBarProviderPayload]
+    public let menuBar: AIBarMenuBar?
+
+    public init(providers: [AIBarProviderPayload], menuBar: AIBarMenuBar? = nil) {
+        self.providers = providers
+        self.menuBar = menuBar
+    }
 
     public func payload(for provider: AIBarProvider) -> AIBarProviderPayload? {
         providers.first { $0.provider == provider }
+    }
+
+    public func replacingMenuBar(_ menuBar: AIBarMenuBar) -> AIBarAggregatePayload {
+        AIBarAggregatePayload(providers: providers, menuBar: menuBar)
+    }
+
+    public func selectingMenuBarRow(provider: AIBarProvider, label: String) -> AIBarAggregatePayload {
+        replacingMenuBar(menuBarSelecting(provider: provider, label: label))
+    }
+
+    private func menuBarSelecting(provider selectedProvider: AIBarProvider, label: String) -> AIBarMenuBar {
+        var chosen: [AIBarProvider: String] = [:]
+        for key in menuBar?.rows ?? [] {
+            guard let provider = AIBarProvider(rawValue: key.split(separator: ":", maxSplits: 1).first.map(String.init) ?? "") else {
+                continue
+            }
+            chosen[provider] = key
+        }
+        chosen[selectedProvider] = "\(selectedProvider.rawValue):\(label)"
+
+        var segments: [AIBarMenuBarSegment] = []
+        var rows: [String] = []
+        for provider in AIBarProvider.dashboardOrder {
+            guard let entry = payload(for: provider), entry.isCompactEligible else { continue }
+            let usageRows = entry.payload.usageRows
+            guard let row = chosenUsageRow(provider, usageRows, savedKey: chosen[provider]) else { continue }
+            let paceText: String
+            if let expected = row.pacing?.expectedPercentage {
+                let pace = Int((expected - row.percentage).rounded())
+                paceText = pace > 0 ? "+\(pace)%" : "\(pace)%"
+            } else {
+                paceText = "--"
+            }
+            let severity: AIBarSeverity = row.percentage >= 90 ? .critical : row.percentage >= 75 ? .warning : .normal
+            segments.append(AIBarMenuBarSegment(text: "\(provider.badge) \(paceText)", severity: severity))
+            rows.append("\(provider.rawValue):\(row.label)")
+        }
+        let text = segments.isEmpty ? "AIBar" : segments.map(\.text).joined(separator: "  ")
+        return AIBarMenuBar(text: text, rows: rows, segments: segments)
+    }
+
+    private func chosenUsageRow(
+        _ provider: AIBarProvider,
+        _ usageRows: [AIBarUsageRow],
+        savedKey: String?
+    ) -> AIBarUsageRow? {
+        if let savedKey {
+            let savedLabel = savedKey.split(separator: ":", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
+            if let match = usageRows.first(where: { $0.label == savedLabel }) {
+                return match
+            }
+        }
+        let weekly = provider == .grok ? "GrokBot (Weekly)" : "Weekly"
+        return usageRows.first { $0.label == weekly } ?? usageRows.first
     }
 
     public var compactEntries: [AIBarProviderPayload] {
@@ -289,6 +371,9 @@ public struct AIBarAggregatePayload: Decodable, Equatable, Sendable {
     }
 
     public var menuBarText: String {
+        if let menuBar {
+            return menuBar.text
+        }
         let values = compactEntries.map(\.menuBarText)
         return values.isEmpty ? "AIBar" : values.joined(separator: "  ")
     }

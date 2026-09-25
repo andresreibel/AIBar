@@ -76,6 +76,18 @@ private struct EngineRunner: Sendable {
         }
     }
 
+    func toggleMenuBarRow(provider: AIBarProvider, label: String) async throws -> AIBarMenuBar {
+        let output = try await run(arguments: ["--toggle-menu-bar-row", provider.rawValue, label])
+        guard let data = output.data(using: .utf8) else {
+            throw EngineError.invalidOutput(output)
+        }
+        do {
+            return try JSONDecoder().decode(AIBarMenuBar.self, from: data)
+        } catch {
+            throw EngineError.invalidOutput(output)
+        }
+    }
+
     func reconnect(_ provider: AIBarProvider) async throws {
         if provider == .grok {
             let output = try await run(arguments: ["--login", "grok"])
@@ -163,6 +175,7 @@ private final class AIBarModel: ObservableObject {
     @Published var dropdownPreferredHeight = AIBarPopoverLayout.preferredSize.height
 
     private var timer: Timer?
+    private var menuBarSelectionGeneration = 0
 
     init() {
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
@@ -195,14 +208,48 @@ private final class AIBarModel: ObservableObject {
         aggregate?.payload(for: provider)
     }
 
+    func showsMenuBarRow(_ provider: AIBarProvider, label: String) -> Bool {
+        let key = "\(provider.rawValue):\(label)"
+        if let rows = aggregate?.menuBar?.rows {
+            return rows.contains(key)
+        }
+        return label == "Weekly" || label == "GrokBot (Weekly)"
+    }
+
+    func selectMenuBarPool(_ provider: AIBarProvider, label: String) {
+        guard let aggregate, !showsMenuBarRow(provider, label: label) else { return }
+        menuBarSelectionGeneration += 1
+        let generation = menuBarSelectionGeneration
+        let previous = aggregate.menuBar
+        self.aggregate = aggregate.selectingMenuBarRow(provider: provider, label: label)
+        Task {
+            do {
+                let menuBar = try await EngineRunner.resolve().toggleMenuBarRow(provider: provider, label: label)
+                guard generation == menuBarSelectionGeneration, let aggregate = self.aggregate else { return }
+                self.aggregate = aggregate.replacingMenuBar(menuBar)
+            } catch {
+                guard generation == menuBarSelectionGeneration else { return }
+                errorMessage = error.localizedDescription
+                if let previous, let aggregate = self.aggregate {
+                    self.aggregate = aggregate.replacingMenuBar(previous)
+                }
+            }
+        }
+    }
+
     func refresh() async {
         guard !isRefreshing else { return }
         let startedAt = DispatchTime.now().uptimeNanoseconds
         isRefreshing = true
 
+        let selectionGeneration = menuBarSelectionGeneration
         do {
             let runner = try EngineRunner.resolve()
-            aggregate = try await runner.payloads()
+            var next = try await runner.payloads()
+            if menuBarSelectionGeneration != selectionGeneration, let menuBar = aggregate?.menuBar {
+                next = next.replacingMenuBar(menuBar)
+            }
+            aggregate = next
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -574,21 +621,26 @@ private struct AIBarMenu: View {
                     if payload.usageRows.isEmpty {
                         if let percentage = payload.percentage {
                             usageRow(
+                                provider: provider,
                                 label: payload.percentageLabel ?? "Usage",
                                 percentage: percentage,
                                 resetText: nil,
                                 pacing: nil,
-                                tint: usageColor(for: payload.severity)
+                                tint: usageColor(for: payload.severity),
+                                showsSelector: false
                             )
                         }
                     } else {
+                        let showsSelector = payload.usageRows.count > 1
                         ForEach(Array(payload.usageRows.enumerated()), id: \.offset) { _, row in
                             usageRow(
+                                provider: provider,
                                 label: row.label,
                                 percentage: row.percentage,
                                 resetText: row.resetText,
                                 pacing: row.pacing,
-                                tint: usageColor(for: row.severity)
+                                tint: usageColor(for: row.severity),
+                                showsSelector: showsSelector
                             )
                         }
                     }
@@ -753,12 +805,31 @@ private struct AIBarMenu: View {
     }
 
     @ViewBuilder
+    private func menuBarToggle(_ provider: AIBarProvider, _ label: String) -> some View {
+        Toggle(isOn: Binding(
+            get: { model.showsMenuBarRow(provider, label: label) },
+            set: { newValue in
+                guard newValue else { return }
+                model.selectMenuBarPool(provider, label: label)
+            }
+        )) {
+            EmptyView()
+        }
+        .toggleStyle(.checkbox)
+        .labelsHidden()
+        .controlSize(.small)
+        .help("Use this pool in the menu bar")
+        .accessibilityLabel("Use \(compactLabel(label)) in the menu bar")
+    }
+
     private func usageRow(
+        provider: AIBarProvider,
         label: String,
         percentage: Double,
         resetText: String?,
         pacing: AIBarUsagePacing?,
-        tint: Color
+        tint: Color,
+        showsSelector: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             if let pacing {
@@ -781,6 +852,9 @@ private struct AIBarMenu: View {
                 )
 
                 HStack {
+                    if showsSelector {
+                        menuBarToggle(provider, label)
+                    }
                     Text(compactLabel(label))
                         .fontWeight(.semibold)
                         .lineLimit(1)
@@ -804,6 +878,9 @@ private struct AIBarMenu: View {
                 )
             } else {
                 HStack {
+                    if showsSelector {
+                        menuBarToggle(provider, label)
+                    }
                     Text(compactLabel(label))
                         .fontWeight(.semibold)
                         .lineLimit(1)
@@ -1005,8 +1082,10 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
         if let aggregate {
             lastStatusTitle = aggregate.menuBarText
         }
-        guard !popover.isShown else { return }
-        let title = aggregate?.menuBarText ?? lastStatusTitle
+        let segments = aggregate?.menuBar?.segments ?? []
+        let title = segments.isEmpty
+            ? (aggregate?.menuBarText ?? lastStatusTitle)
+            : segments.map(\.text).joined(separator: "  ")
         let baseFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         let attributedTitle = NSMutableAttributedString(
             string: title,
@@ -1015,7 +1094,30 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
                 .font: baseFont,
             ]
         )
-        if let aggregate {
+        if !segments.isEmpty {
+            var location = 0
+            for (index, segment) in segments.enumerated() {
+                if index > 0 {
+                    location += 2
+                }
+                let color: NSColor
+                switch segment.severity {
+                case .warning:
+                    color = NSColor(cosmicOrange)
+                case .critical, .error:
+                    color = .red
+                case .normal, .stale:
+                    color = .labelColor
+                }
+                let length = (segment.text as NSString).length
+                attributedTitle.addAttribute(
+                    .foregroundColor,
+                    value: color,
+                    range: NSRange(location: location, length: 1)
+                )
+                location += length
+            }
+        } else if let aggregate, aggregate.menuBar == nil {
             let connected = aggregate.compactEntries
             var location = 0
             for (index, entry) in connected.enumerated() {
@@ -1039,9 +1141,18 @@ private final class AIBarAppDelegate: NSObject, NSApplicationDelegate, NSPopover
                 location += (entry.menuBarText as NSString).length
             }
         }
+        let titleChanged = button.attributedTitle.string != title
+        let popoverWasShown = popover.isShown
+        if popoverWasShown && titleChanged {
+            popover.behavior = .applicationDefined
+        }
         button.attributedTitle = attributedTitle
         button.toolTip = model.statusTooltip
         button.setAccessibilityLabel("AIBar, \(title)")
+        if popoverWasShown && titleChanged {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.behavior = .transient
+        }
     }
 }
 

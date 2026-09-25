@@ -14,7 +14,7 @@ Both versions show the same Codex, Claude, and SpaceXAI (Grok) subscription limi
 
 ![AIBar macOS dashboard on a MacBook](assets/aibar-macos.png)
 
-The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI (Grok) simultaneously in three compact columns. Each column keeps its quota bars, reset countdowns, provider-specific details, and refresh time. The menu bar shows every provider's signed weekly pace at a glance.
+The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI (Grok) simultaneously in three compact columns. Each column keeps its quota bars, reset countdowns, provider-specific details, and refresh time. The menu bar shows each connected provider's signed pace for the one pool selected for that provider.
 
 ## Features
 
@@ -26,12 +26,12 @@ The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI
 - Five-minute background refresh plus initial and manual refresh with a one-second minimum loading spinner on both dashboards, with caching and rate-limit backoff.
 - Subtle per-provider last-updated time in both dashboards and the Linux tooltip.
 - Native macOS launch-at-login control.
-- Native macOS menu-bar summary with provider-letter warning colors tied to the percentage of each weekly limit already used.
+- Native macOS menu-bar summary. Each provider letter takes its color from the selected pool's usage.
 - Automatic macOS/Linux installer routing.
 
 ## Display
 
-The macOS and Linux menu bars show the same weekly pace values:
+The macOS and Linux menu bars show the same signed pace for each provider's selected pool:
 
 ```text
 A -1%  O +4%  S +39%
@@ -40,19 +40,16 @@ A -1%  O +4%  S +39%
 | Part | Meaning |
 | --- | --- |
 | `A` / `O` / `S` | Anthropic Claude / OpenAI Codex / SpaceXAI Grok |
-| Signed percentage | Expected weekly consumption minus actual weekly consumption |
-| Negative pace | Actual consumption is ahead of the linear allowance |
-| Positive pace | Actual consumption is below the linear allowance |
-| `--` | Weekly pace is unavailable for that provider |
+| Signed percentage | Expected consumption minus actual consumption for the one pool selected for that provider |
 
-On macOS, only the provider letter changes color based on the percentage of that provider's weekly limit already used: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. The Linux command widget renders the same text in the bar's native color. `S` uses the GrokBot Weekly limit, not either monthly Cursor bucket. The signed pace percentage keeps the native label color.
+The menu bar shows one pool per provider. A provider with a single pool has no selector. A provider with several pools shows a selector on each, and the one you pick is saved as that provider's default. Until you pick, the weekly pool is used, so the bar starts as `O -2%  S +64%`. Choosing Cursor monthly for SpaceXAI changes only the `S` number, to `S -1%`. The choice is stored in `~/.codex/aibar/menu-bar-rows.json`. On macOS the bar changes as soon as you select a pool. On Linux the Omarchy widget runs `aibar.ts --bar` every second, reads that same file, and shows the new text on its next read. On macOS only the provider letter changes color from that pool's usage: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. The signed pace keeps the native label color. The Linux bar shows the same text in its native color.
 
 The macOS popover and Linux dashboard use the same fixed Anthropic, OpenAI, SpaceXAI order while giving full card width only to providers with current or cached usage. Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. A slim **Open** control at the bottom opens one notification center for unavailable quota lines, expiring reset credits, and provider access states. On macOS, click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list.
 
-Linux uses the same fixed signed summary:
+Linux uses the same checked-pool summary:
 
 ```text
-A -1%  O +4%  S +39%
+O -2%  S -1%
 ```
 
 Hover shows provider details; click opens the matching three-card dashboard. In the dashboard, only the pacing difference turns green, cosmic orange, or red; red begins when actual usage is at least 10 percentage points above expected.
@@ -121,7 +118,7 @@ Requirements:
 }
 ```
 
-The one-second bar interval reads the local render cache; live usage requests remain limited to about once per five minutes. Hover for compact details and click to open or close the three-card dashboard. Initial load and every manual refresh hide the cards behind a spinner for at least one second, then reveal all provider data together. This uses Quattro's built-in command widget—no custom QML or plugin is required.
+The one-second bar interval reads the local render cache and the saved pool choice. Live usage requests remain limited to about once per five minutes. Hover for compact details and click to open or close the three-card dashboard. Initial load and every manual refresh hide the cards behind a spinner for at least one second, then reveal all provider data together. This uses Quattro's built-in command widget—no custom QML or plugin is required.
 
 The dashboard command is always installed. The remaining commands use the optional `aibar` shell helper installed by `./install.sh --bashrc`:
 

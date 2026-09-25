@@ -125,6 +125,15 @@ import Testing
     #expect(aggregate.menuBarText == "A -1%  O +4%  S +39%")
 }
 
+@Test func menuBarSelectionOverridesSignedPaceSummary() throws {
+    let data = Data(#"{"providers":[{"provider":"codex","weeklyPace":-2,"payload":{"text":"O","tooltip":"Codex","accessState":"available","usageRows":[{"label":"Weekly","percentage":78,"resetText":"1d","severity":"warning"}]}}],"menuBar":{"text":"O 78%  SC 88%","rows":["codex:Weekly","grok:Cursor Models (Monthly)"],"segments":[{"text":"O 78%","severity":"warning"},{"text":"SC 88%","severity":"critical"}]}}"#.utf8)
+    let aggregate = try JSONDecoder().decode(AIBarAggregatePayload.self, from: data)
+
+    #expect(aggregate.menuBarText == "O 78%  SC 88%")
+    #expect(aggregate.menuBar?.rows == ["codex:Weekly", "grok:Cursor Models (Monthly)"])
+    #expect(aggregate.menuBar?.segments.map(\.severity) == [.warning, .critical])
+}
+
 @Test func combinedProviderPaceOmitsLostAccessOnly() throws {
     let data = Data(#"{"providers":[{"provider":"claude","weeklyPace":null,"payload":{"text":"A","tooltip":"Temporarily unavailable","accessState":"unavailable"}},{"provider":"codex","weeklyPace":4,"payload":{"text":"O","tooltip":"Login required","accessState":"login_required"}},{"provider":"grok","weeklyPace":39,"payload":{"text":"X","tooltip":"Subscription expired","accessState":"subscription_expired"}}]}"#.utf8)
     let aggregate = try JSONDecoder().decode(AIBarAggregatePayload.self, from: data)

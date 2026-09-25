@@ -10,6 +10,7 @@ import {
     codexUsageToPayload,
     compactLegacyTooltip,
     codexExecutableCandidates,
+    buildMenuBar,
     compactOutputPayload,
     decodeMacOSKeychainSecret,
     firstExecutable,
@@ -31,6 +32,7 @@ import {
     renderGrokPayload,
     stampPayload,
     stripLegacyBarCountdown,
+    selectMenuBarRow,
     weeklyPacePercentagePoints,
 } from "./aibar";
 
@@ -100,7 +102,7 @@ describe("combined provider pacing", () => {
         expect(result.providers[1]?.payload.accessState).toBe("unavailable");
     });
 
-    test("matches the macOS signed weekly menu-bar summary", () => {
+    test("shows signed pace for the default weekly pools", () => {
         const result = menuBarOutputPayload({
             providers: [
                 {
@@ -277,6 +279,127 @@ describe("parseCodexResetCreditDetails", () => {
             { title: "Reset credit", expiresAt: 1_850_000_000 },
             { title: "Full reset", expiresAt: 1_900_000_000 },
             { title: "Expiry pending", expiresAt: null },
+        ]);
+    });
+});
+
+describe("menu bar pool selection", () => {
+    const providers = [
+        {
+            provider: "codex" as const,
+            payload: {
+                text: "",
+                tooltip: "",
+                accessState: "available" as const,
+                usageRows: [{
+                    label: "Weekly",
+                    percentage: 78,
+                    resetText: "1d",
+                    severity: "warning" as const,
+                    pacing: { expectedPercentage: 76 },
+                }],
+            },
+        },
+        {
+            provider: "grok" as const,
+            payload: {
+                text: "",
+                tooltip: "",
+                accessState: "available" as const,
+                usageRows: [
+                    {
+                        label: "Cursor Models (Monthly)",
+                        percentage: 88,
+                        resetText: "4d",
+                        severity: "warning" as const,
+                        pacing: { expectedPercentage: 87 },
+                    },
+                    {
+                        label: "Other Models (Monthly)",
+                        percentage: 100,
+                        resetText: "4d",
+                        severity: "critical" as const,
+                        pacing: { expectedPercentage: 87 },
+                    },
+                    {
+                        label: "GrokBot (Weekly)",
+                        percentage: 20,
+                        resetText: "1d",
+                        severity: "normal" as const,
+                        pacing: { expectedPercentage: 84 },
+                    },
+                ],
+            },
+        },
+    ];
+
+    test("checks weekly pools until the owner chooses", () => {
+        expect(buildMenuBar(providers, null)).toMatchObject({
+            text: "O -2%  S +64%",
+            rows: ["codex:Weekly", "grok:GrokBot (Weekly)"],
+        });
+    });
+
+    test("keeps one pool per provider and uses the latest choice", () => {
+        const summary = buildMenuBar(providers, [
+            "codex:Weekly",
+            "grok:GrokBot (Weekly)",
+            "grok:Cursor Models (Monthly)",
+        ]);
+
+        expect(summary.text).toBe("O -2%  S -1%");
+        expect(summary.rows).toEqual(["codex:Weekly", "grok:Cursor Models (Monthly)"]);
+        expect(summary.segments.map((segment) => segment.severity)).toEqual(["warning", "warning"]);
+    });
+
+    test("prints signed pace and colors the badge from the pool's usage", () => {
+        const summary = buildMenuBar([{
+            provider: "codex",
+            payload: {
+                text: "",
+                tooltip: "",
+                accessState: "available",
+                usageRows: [{
+                    label: "Weekly",
+                    percentage: 96,
+                    resetText: "1d",
+                    severity: "warning",
+                    pacing: { expectedPercentage: 95 },
+                }],
+            },
+        }], null);
+
+        expect(summary.text).toBe("O -1%");
+        expect(summary.segments[0]?.severity).toBe("critical");
+    });
+
+    test("uses the weekly pool when nothing has been chosen", () => {
+        expect(buildMenuBar(providers, []).text).toBe("O -2%  S +64%");
+    });
+
+    test("sends the saved pool text to the Linux bar", () => {
+        const summary = buildMenuBar(providers, [
+            "codex:Weekly",
+            "grok:Cursor Models (Monthly)",
+        ]);
+        const result = menuBarOutputPayload({
+            providers: providers.map((entry) => ({ ...entry, weeklyPace: null })),
+            menuBar: summary,
+        });
+
+        expect(result.text).toBe("O -2%  S -1%");
+        expect(result.accessState).toBe("available");
+    });
+
+    test("replaces that provider's saved pool and keeps the others", () => {
+        expect(selectMenuBarRow(
+            ["codex:Weekly", "grok:GrokBot (Weekly)", "grok:Cursor Models (Monthly)"],
+            providers,
+            "grok",
+            "Other Models (Monthly)",
+        )).toEqual([
+            "codex:Weekly",
+            "grok:Other Models (Monthly)",
         ]);
     });
 });

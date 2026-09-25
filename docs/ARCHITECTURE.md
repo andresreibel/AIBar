@@ -12,8 +12,19 @@ AIBar is one product with a shared provider engine and thin platform adapters.
 - Pacing, warning state, reset countdowns, and reset-credit formatting.
 - Claude caching and rate-limit backoff.
 - Provider selection under `~/.codex/aibar/`.
+- One saved menu-bar pool per provider in `menu-bar-rows.json`.
 
-It emits a JSON payload consumed by the Quattro command widget:
+`aibar.ts --bar` prints the compact text used by the Omarchy Quattro command widget. `text` is one signed pace per connected provider, for the saved pool:
+
+```json
+{
+  "text": "O -2%  S +64%",
+  "tooltip": "Week 78% · warning · reset 1d15h\n\nWeek 20% · reset 1d2h",
+  "accessState": "available"
+}
+```
+
+Each dashboard still receives the fuller provider payload from `aibar.ts --all`:
 
 ```json
 {
@@ -38,7 +49,7 @@ It emits a JSON payload consumed by the Quattro command widget:
 
 `resetCredits` remains the authoritative available count from the OpenAI usage response. After a successful OAuth usage read, the engine asks the supported local Codex app-server `account/rateLimits/read` method for optional `resetCreditDetails`. The menu bar process keeps a short PATH, so the engine resolves `codex` on that PATH and then under nvm, `~/.local/bin`, Homebrew, and `/usr/local/bin`. Each emitted detail contains only the backend display title and optional Unix-seconds expiry; account, credit, grant, and description fields are never retained. The macOS Reset credits row exposes the localized title and expiry list on hover and click. Both adapters color the count cosmic orange within 14 days of the earliest expiry and red within 7 days, and add each qualifying credit to the bottom notification center. Older/count-only Codex versions and failed enrichment return an empty list without hiding the count or failing quota refresh.
 
-The macOS app invokes `aibar.ts --all`. That additive response wraps one unchanged payload per provider in fixed Anthropic, OpenAI, SpaceXAI order and includes `weeklyPace`, calculated as expected weekly percentage minus actual weekly percentage. Each provider reads or refreshes its own existing cache independently. The normal no-argument engine output and persisted provider selection remain unchanged for Linux.
+The macOS app and Linux dashboard both invoke `aibar.ts --all`. That response wraps one payload per provider in fixed Anthropic, OpenAI, SpaceXAI order and includes `weeklyPace`, calculated as expected weekly percentage minus actual weekly percentage. It also includes `menuBar`, with one segment per connected provider: signed pace text, the saved row key, and severity taken from that pool's usage. Each provider reads or refreshes its own existing cache independently. One chosen pool per provider is stored in `menu-bar-rows.json`. Until a provider has a saved choice, its weekly row is used. A provider with only one pool has no selector. Choosing a pool replaces that provider's saved row and becomes the next default. macOS applies the new menu-bar text immediately. Linux `aibar.ts --bar` rebuilds the same text from the file, and the Omarchy widget runs that command every second. macOS colors only the provider letter from that pool's usage: native below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more.
 
 ## Quota windows
 
@@ -58,7 +69,7 @@ Reset-credit urgency is presentation-only and time-based: no color outside 14 da
 
 ## Linux adapter
 
-Linux installs the shared engine into `~/.local/bin/aibar.ts` and the thin GTK 4 adapter into `~/.local/bin/aibar-dashboard`. Omarchy Quattro runs the engine as its built-in command widget on a short interval and reads its five-minute render cache. Its compact plain-text tooltip holds the selected provider's session, weekly, reset, and refresh details.
+Linux installs the shared engine into `~/.local/bin/aibar.ts` and the thin GTK 4 adapter into `~/.local/bin/aibar-dashboard`. Omarchy Quattro runs `aibar.ts --bar` every second. That command reads the five-minute render cache and `menu-bar-rows.json`, then prints the same one-pool signed pace the macOS menu bar shows. Choosing a pool in the dashboard writes the file immediately, and the widget shows it on the next read. The tooltip joins the connected providers' compact details.
 
 Clicking the bar launches the GTK dashboard. It invokes `aibar.ts --all`, decodes the same fixed provider order and payload fields as macOS, and renders full cards only for providers with current or cached usage. The adapter owns presentation of the slim notification center but does not duplicate authentication, quota, pacing, severity, or cache classification. On Wayland, optional `gtk4-layer-shell` anchors the dashboard as a top-right overlay; otherwise GTK presents a normal window. A second launch closes the existing dashboard instance.
 
@@ -75,7 +86,7 @@ The packaged app bundles `aibar.ts` under `Contents/Resources`. The Swift app lo
 
 The dropdown uses the status button's display and fits its content within the usable screen area. AppKit's native `NSPopover` placement owns the vertical position; AIBar preserves that position after opening and only corrects the horizontal origin to keep a 12-point side margin. Its height follows the measured content, up to 450 points, at a preferred width of 620 points. With no visible notifications, it omits the notification row and uses 16 points of bottom padding. It accounts for the popover's window chrome when sizing content. Smaller areas use fewer provider columns and vertical scrolling; the refresh header and notification control remain outside the scrolling area. `AIBarPopoverLayout` owns the screen-coordinate calculations, including displays with negative origins.
 
-The menu bar displays signed weekly pace for eligible Anthropic, OpenAI, and SpaceXAI accounts. The macOS popover and Linux dashboard give the full card area only to providers with current or cached usage; provider selection remains a Linux-only interaction. Comparable rows place Expected above Actual, show a compact signed `expected − actual` delta, and color only the non-overlapping meter segment green, orange, or red. Both dashboards collect unavailable quota lines, qualifying reset-credit expiries, and provider access states into one slim notification control at the bottom instead of placing persistent warnings inside usage cards.
+The menu bar displays signed pace for one saved pool per eligible Anthropic, OpenAI, and SpaceXAI account. macOS applies that text as soon as the pool is selected and colors only the provider letter from that pool's usage. Linux shows the same text through the one-second command widget. The macOS popover and Linux dashboard give the full card area only to providers with current or cached usage; provider selection remains a Linux-only interaction. Comparable rows place Expected above Actual, show a compact signed `expected − actual` delta, and color only the non-overlapping meter segment green, orange, or red. Both dashboards collect unavailable quota lines, qualifying reset-credit expiries, and provider access states into one slim notification control at the bottom instead of placing persistent warnings inside usage cards.
 
 Every normalized provider payload has one engine-owned `accessState`: `available`, `stale`, `unavailable`, `login_required`, or `subscription_expired`. Both adapters render the same label and action table and never inspect credentials or parse provider errors. **Login required** is the only state with a **Login** action. Only available or cached-stale providers receive full dashboard cards and compact counters. Other states remain in `--all` and appear in the bottom notification center. Clearing notifications persists a deterministic signature covering the current provider states, unavailable quotas, credit expiries, and urgency; any content change invalidates the dismissal. Old render caches without a valid state are rejected. For Anthropic, a documented `claude auth status` exit code of `1`, missing Claude.ai OAuth credentials, or OAuth refresh `invalid_grant` means login is required. The undocumented OAuth usage endpoint's `401`/`402`/`403`, `429`, network, malformed-response, and generic failures remain unavailable. The observed `subscriptionType` JSON field is not a documented current-entitlement contract and is not used. `subscription_expired` is reserved for a future documented entitlement signal and is not inferred from status codes or prose.
 
