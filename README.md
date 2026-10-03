@@ -24,7 +24,7 @@ The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI
 - Providers without current or cached usage leave the main card area and the macOS menu-bar and Omarchy compact counters. The slim notification control at the bottom of either dashboard includes their status and Login actions; **Clear notifications** hides the current set until its content changes.
 - OpenAI reset-credit count in both dashboards, with each available credit's expiry shown by hovering over or clicking the macOS Reset credits row. Credits expiring within two weeks turn cosmic orange; credits expiring within one week turn red. Both thresholds also create a notification.
 - Five-minute background refresh plus initial and manual refresh with a one-second minimum loading spinner on both dashboards, with caching and rate-limit backoff.
-- Subtle per-provider last-updated time in both dashboards and the Linux tooltip.
+- Subtle per-provider last-updated time in both dashboards.
 - Native macOS launch-at-login control.
 - Native macOS menu-bar summary. Each provider letter takes its color from the selected pool's usage.
 - Automatic macOS/Linux installer routing.

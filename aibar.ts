@@ -2161,13 +2161,14 @@ export function buildMenuBar(
     };
 }
 
-export function menuBarOutputPayload(aggregate: AllProvidersPayload): BarPayload {
+export function menuBarOutputPayload(
+    aggregate: AllProvidersPayload,
+): Pick<BarPayload, "text" | "accessState"> {
     const entries = aggregate.providers.filter(({ payload }) => isCompactEligible(payload.accessState));
     const summary = aggregate.menuBar ?? buildMenuBar(aggregate.providers, null);
 
     return {
         text: summary.text,
-        tooltip: aggregate.providers.map(({ payload }) => payload.tooltip).filter(Boolean).join("\n\n") || "AIBar",
         accessState: entries.some(({ payload }) => payload.accessState == "available")
             ? "available"
             : entries.length > 0 ? "stale" : "unavailable",

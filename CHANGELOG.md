@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- Removed the Linux bar hover popup. Usage details remain available in the click dashboard.
+
 - Color only the pacing difference on both dashboards: green below expected, cosmic orange when less than 10 percentage points above expected, and red at 10 points or more above expected.
 - Consolidated unavailable quota lines, expiring reset credits, and provider access states into one minimal notification center at the bottom of both dashboards.
 - Added one shared provider-access state across the engine, macOS, and Linux: providers without current or cached usage now leave full cards and compact counters; notification-center content remains available without competing with active subscriptions and can be cleared until any notice changes.

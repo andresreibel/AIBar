@@ -19,7 +19,6 @@ AIBar is one product with a shared provider engine and thin platform adapters.
 ```json
 {
   "text": "O -2%  S +64%",
-  "tooltip": "Week 78% · warning · reset 1d15h\n\nWeek 20% · reset 1d2h",
   "accessState": "available"
 }
 ```
@@ -69,7 +68,7 @@ Reset-credit urgency is presentation-only and time-based: no color outside 14 da
 
 ## Linux adapter
 
-Linux installs the shared engine into `~/.local/bin/aibar.ts` and the thin GTK 4 adapter into `~/.local/bin/aibar-dashboard`. Omarchy Quattro runs `aibar.ts --bar` every second. That command reads the five-minute render cache and `menu-bar-rows.json`, then prints the same one-pool signed pace the macOS menu bar shows. Choosing a pool in the dashboard writes the file immediately, and the widget shows it on the next read. The tooltip joins the connected providers' compact details.
+Linux installs the shared engine into `~/.local/bin/aibar.ts` and the thin GTK 4 adapter into `~/.local/bin/aibar-dashboard`. Omarchy Quattro runs `aibar.ts --bar` every second. That command reads the five-minute render cache and `menu-bar-rows.json`, then prints the same one-pool signed pace the macOS menu bar shows. Choosing a pool in the dashboard writes the file immediately, and the widget shows it on the next read. The bar has no hover popup; clicking it opens the dashboard.
 
 Clicking the bar launches the GTK dashboard. It invokes `aibar.ts --all`, decodes the same fixed provider order and payload fields as macOS, and renders full cards only for providers with current or cached usage. The adapter owns presentation of the slim notification center but does not duplicate authentication, quota, pacing, severity, or cache classification. On Wayland, optional `gtk4-layer-shell` anchors the dashboard as a top-right overlay; otherwise GTK presents a normal window. A second launch closes the existing dashboard instance.
 

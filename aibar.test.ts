@@ -389,6 +389,7 @@ describe("menu bar pool selection", () => {
 
         expect(result.text).toBe("O -2%  S -1%");
         expect(result.accessState).toBe("available");
+        expect(result).not.toHaveProperty("tooltip");
     });
 
     test("replaces that provider's saved pool and keeps the others", () => {
