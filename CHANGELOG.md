@@ -14,6 +14,7 @@
 
 ### Fixed
 
+- SpaceXAI stays on the dashboard when Grok's weekly usage call hangs. Monthly Cursor rows still load on their own timer, a missing weekly row is reported as unavailable, and the last successful SpaceXAI snapshot stays visible if a later refresh fails.
 - Removed the Linux bar hover popup. Usage details remain available in the click dashboard.
 
 - Color only the pacing difference on both dashboards: green below expected, cosmic orange when less than 10 percentage points above expected, and red at 10 points or more above expected.

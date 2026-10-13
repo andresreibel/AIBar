@@ -23,6 +23,8 @@ const GROK_LOGIN_URL = "https://cursor.com/loginDeepControl";
 const GROK_AUTH_POLL_URL = "https://api2.cursor.sh/auth/poll";
 const GROK_USAGE_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
 const CURSOR_MONTHLY_USAGE_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage";
+const GROK_WEEKLY_TIMEOUT_MS = 12_000;
+const GROK_MONTHLY_TIMEOUT_MS = 25_000;
 const GROK_AUTH_ERROR = "Grok sign-in required. Sign in or reconnect Grok.";
 const GROK_WEEKLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const GROK_LOGIN_TIMEOUT_MS = 2 * 60 * 1000;
@@ -36,6 +38,7 @@ const CLAUDE_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const CLAUDE_SESSION_WINDOW_MS = 5 * 60 * 60 * 1000;
 export const CLAUDE_WEEKLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const CLAUDE_CACHE_PATH = `${STATE_DIR}/claude-last-good.json`;
+const GROK_CACHE_PATH = `${STATE_DIR}/grok-last-good.json`;
 const CLAUDE_BACKOFF_PATH = `${STATE_DIR}/claude-backoff.json`;
 const CLAUDE_MIN_BACKOFF_MS = 15 * 60 * 1000;
 
@@ -191,6 +194,7 @@ type GrokUsageDependencies = {
     authPath?: string;
     usageUrl?: string;
     monthlyUsageUrl?: string;
+    cachePath?: string;
     fetchImpl?: typeof fetch;
 };
 
@@ -627,6 +631,48 @@ async function saveClaudeCachedPayload(payload: BarPayload): Promise<void> {
         savedAtMs: Date.now(),
         payload,
     });
+}
+
+async function loadGrokCachedPayload(cachePath: string): Promise<{ savedAtMs: number; payload: BarPayload } | null> {
+    const parsed = await readJsonFile(cachePath);
+    if (!isRecord(parsed)) {
+        return null;
+    }
+    const savedAtMs = toNumber(parsed.savedAtMs);
+    const payload = normalizeBarPayload(parsed.payload);
+    if (savedAtMs == null || !payload || payload.accessState != "available") {
+        return null;
+    }
+    return { savedAtMs, payload };
+}
+
+async function saveGrokCachedPayload(cachePath: string, payload: BarPayload): Promise<void> {
+    if (payload.accessState != "available") {
+        return;
+    }
+    await writeJsonFile(cachePath, {
+        savedAtMs: Date.now(),
+        payload,
+    });
+}
+
+function annotateCachedGrokPayload(payload: BarPayload, detail: string): BarPayload {
+    return {
+        ...payload,
+        accessState: "stale",
+        text: stripLegacyBarCountdown(payload.text),
+        tooltip: `${compactLegacyTooltip(payload.tooltip)}\nStale · cached SpaceXAI usage\n${detail}`,
+        class: mergeClasses(payload.class, "stale", "provider-grok"),
+    };
+}
+
+async function fallbackToCachedGrokPayload(cachePath: string, detail: string): Promise<BarPayload | null> {
+    const cached = await loadGrokCachedPayload(cachePath);
+    if (!cached) {
+        return null;
+    }
+    const payload = cached.payload.updatedAt ? cached.payload : stampPayload(cached.payload, cached.savedAtMs);
+    return annotateCachedGrokPayload(payload, detail);
 }
 
 async function loadClaudeBackoff(): Promise<ClaudeBackoffState | null> {
@@ -1503,14 +1549,12 @@ export function parseCursorMonthlyUsage(raw: unknown): CursorMonthlyUsageSnapsho
 }
 
 export function grokUsageToPayload(
-    usage: GrokUsageSnapshot,
+    usage: GrokUsageSnapshot | null,
     monthlyUsage?: CursorMonthlyUsageSnapshot,
 ): BarPayload {
-    const pacing = calcPacing(usage.weeklyPct, usage.weeklyResetAt, usage.weeklyWindowMs);
-    const cssClass = deriveCssClass(usage.weeklyPct, pacing);
-    const weeklySeverity = cssClass == "warning" || cssClass == "critical" ? cssClass : "normal";
     const usageRows: UsageRow[] = [];
     const tooltipLines: string[] = [];
+    let cursorModelsPacing: ReturnType<typeof calcPacing> | null = null;
     if (monthlyUsage != null) {
         const monthlyResetText = formatCountdown(monthlyUsage.monthlyResetAt);
         const monthlyWindowMs = (monthlyUsage.monthlyResetAt - monthlyUsage.monthlyStartAt) * 1000;
@@ -1519,6 +1563,7 @@ export function grokUsageToPayload(
             monthlyUsage.monthlyResetAt,
             monthlyWindowMs,
         );
+        cursorModelsPacing = monthlyPacing;
         const monthlyExpectedPercentage = monthlyPacing.timeElapsedPct;
         usageRows.push(
             {
@@ -1539,6 +1584,27 @@ export function grokUsageToPayload(
     } else {
         tooltipLines.push("Cursor monthly unavailable", "Other monthly unavailable");
     }
+    if (usage == null) {
+        if (monthlyUsage == null || cursorModelsPacing == null) {
+            throw new Error("Grok usage request failed");
+        }
+        const cssClass = deriveCssClass(monthlyUsage.cursorModelsPct, cursorModelsPacing);
+        tooltipLines.push("Week unavailable");
+        return stampPayload({
+            text: addProviderBadge(
+                `${cursorModelsPacing.icon} ◉${monthlyUsage.cursorModelsPct}% ⧖${cursorModelsPacing.timeElapsedPct}%`,
+                "X"),
+            tooltip: tooltipLines.join("\n"),
+            accessState: "available",
+            class: mergeClasses(cssClass, "provider-grok"),
+            percentage: monthlyUsage.cursorModelsPct,
+            percentageLabel: "Cursor Models (Monthly)",
+            usageRows,
+        });
+    }
+    const pacing = calcPacing(usage.weeklyPct, usage.weeklyResetAt, usage.weeklyWindowMs);
+    const cssClass = deriveCssClass(usage.weeklyPct, pacing);
+    const weeklySeverity = cssClass == "warning" || cssClass == "critical" ? cssClass : "normal";
     usageRows.push({
         label: "GrokBot (Weekly)",
         percentage: usage.weeklyPct,
@@ -1565,53 +1631,79 @@ export function grokUsageToPayload(
     });
 }
 
-export async function fetchGrokPayload(dependencies: GrokUsageDependencies = {}): Promise<BarPayload> {
-    const credentials = await loadGrokCredentials(dependencies.authPath ?? GROK_AUTH_PATH);
-    const fetchImpl = dependencies.fetchImpl ?? fetch;
-    const requestInit: RequestInit = {
+function grokUsageRequest(accessToken: string, timeoutMs: number): RequestInit {
+    return {
         method: "POST",
         headers: {
-            Authorization: `Bearer ${credentials.accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
             "Connect-Protocol-Version": "1",
         },
         body: "{}",
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(timeoutMs),
     };
-    let response: Response;
+}
+
+export async function fetchGrokPayload(dependencies: GrokUsageDependencies = {}): Promise<BarPayload> {
+    const credentials = await loadGrokCredentials(dependencies.authPath ?? GROK_AUTH_PATH);
+    const fetchImpl = dependencies.fetchImpl ?? fetch;
+    const weeklyPromise = fetchImpl(
+        dependencies.usageUrl ?? GROK_USAGE_URL,
+        grokUsageRequest(credentials.accessToken, GROK_WEEKLY_TIMEOUT_MS),
+    );
+    const monthlyPromise = fetchImpl(
+        dependencies.monthlyUsageUrl ?? CURSOR_MONTHLY_USAGE_URL,
+        grokUsageRequest(credentials.accessToken, GROK_MONTHLY_TIMEOUT_MS),
+    );
+
+    let weeklyResponse: Response | null = null;
     try {
-        response = await fetchImpl(dependencies.usageUrl ?? GROK_USAGE_URL, requestInit);
+        weeklyResponse = await weeklyPromise;
     } catch {
-        throw new Error("Grok usage request failed");
+        weeklyResponse = null;
     }
-    if (response.status == 401) {
+    if (weeklyResponse?.status == 401) {
         throw new ProviderAccessError(GROK_AUTH_ERROR, {
             kind: "http_status",
-            status: response.status,
+            status: weeklyResponse.status,
             authoritative: true,
         });
     }
-    if (!response.ok) {
-        throw new Error(`Grok usage request failed (HTTP ${response.status})`);
-    }
-    let body: unknown;
-    try {
-        body = await response.json();
-    } catch {
-        throw new Error("Invalid Grok usage response");
-    }
-    const weeklyUsage = parseGrokUsage(body);
+
     let monthlyUsage: CursorMonthlyUsageSnapshot | undefined;
     try {
-        const monthlyResponse = await fetchImpl(
-            dependencies.monthlyUsageUrl ?? CURSOR_MONTHLY_USAGE_URL,
-            requestInit,
-        );
+        const monthlyResponse = await monthlyPromise;
         if (monthlyResponse.ok) {
             monthlyUsage = parseCursorMonthlyUsage(await monthlyResponse.json());
         }
     } catch {
-        // Monthly Cursor usage is optional enrichment; weekly Grok remains authoritative.
+        // Monthly Cursor usage is optional when weekly Grok usage is present.
+    }
+
+    let weeklyUsage: GrokUsageSnapshot | null = null;
+    if (weeklyResponse?.ok) {
+        let body: unknown;
+        try {
+            body = await weeklyResponse.json();
+        } catch {
+            body = null;
+        }
+        if (body != null) {
+            try {
+                weeklyUsage = parseGrokUsage(body);
+            } catch {
+                weeklyUsage = null;
+            }
+        }
+    }
+    if (weeklyUsage == null && monthlyUsage == null) {
+        if (weeklyResponse == null) {
+            throw new Error("Grok usage request failed");
+        }
+        if (!weeklyResponse.ok) {
+            throw new Error(`Grok usage request failed (HTTP ${weeklyResponse.status})`);
+        }
+        throw new Error("Invalid Grok usage response");
     }
     return grokUsageToPayload(weeklyUsage, monthlyUsage);
 }
@@ -1619,10 +1711,19 @@ export async function fetchGrokPayload(dependencies: GrokUsageDependencies = {})
 export async function renderGrokPayload(
     dependencies: GrokUsageDependencies = {},
 ): Promise<BarPayload> {
+    const cachePath = dependencies.cachePath ?? GROK_CACHE_PATH;
     try {
-        return await fetchGrokPayload(dependencies);
+        const payload = await fetchGrokPayload(dependencies);
+        await saveGrokCachedPayload(cachePath, payload);
+        return payload;
     } catch (err) {
         const accessState = classifyProviderAccess(GROK_PROVIDER, providerAccessEvidence(err));
+        if (accessState == "unavailable") {
+            const cached = await fallbackToCachedGrokPayload(cachePath, "Live fetch failed.");
+            if (cached) {
+                return cached;
+            }
+        }
         return stampPayload({
             text: "⚠ X",
             tooltip: accessState == "login_required" ? GROK_AUTH_ERROR : "Grok usage unavailable.",

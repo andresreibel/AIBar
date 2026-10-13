@@ -910,6 +910,70 @@ describe("Grok provider", () => {
         }
     });
 
+    test("keeps monthly SpaceXAI usage when the weekly call fails", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "aibar-grok-weekly-"));
+        const authPath = join(directory, "grok-auth.json");
+        await writeFile(authPath, JSON.stringify({
+            accessToken: "test-access-token",
+            refreshToken: "test-refresh-token",
+        }));
+
+        try {
+            const payload = await fetchGrokPayload({
+                authPath,
+                fetchImpl: async (input) => {
+                    if (String(input).endsWith("/GetSandUsageStatus")) {
+                        throw new Error("timed out");
+                    }
+                    return Response.json(monthlyUsageResponse);
+                },
+            });
+            expect(payload.accessState).toBe("available");
+            expect(payload.usageRows.map((row) => row.label)).toEqual([
+                "Cursor Models (Monthly)",
+                "Other Models (Monthly)",
+            ]);
+            expect(payload.tooltip).toContain("Week unavailable");
+            expect(payload.text).toContain("◉1%");
+        } finally {
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    test("shows cached SpaceXAI usage when the live fetch fails", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "aibar-grok-cache-"));
+        const authPath = join(directory, "grok-auth.json");
+        const cachePath = join(directory, "grok-last-good.json");
+        await writeFile(authPath, JSON.stringify({
+            accessToken: "test-access-token",
+            refreshToken: "test-refresh-token",
+        }));
+
+        try {
+            const live = await renderGrokPayload({
+                authPath,
+                cachePath,
+                fetchImpl: async (input) => String(input).endsWith("/GetCurrentPeriodUsage")
+                    ? Response.json(monthlyUsageResponse)
+                    : Response.json(usageResponse),
+            });
+            expect(live.accessState).toBe("available");
+
+            const stale = await renderGrokPayload({
+                authPath,
+                cachePath,
+                fetchImpl: async () => {
+                    throw new Error("timed out");
+                },
+            });
+            expect(stale.accessState).toBe("stale");
+            expect(stale.usageRows?.map((row) => row.label)).toContain("GrokBot (Weekly)");
+            expect(stale.tooltip).toContain("cached SpaceXAI usage");
+        } finally {
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
     test("fails closed on missing auth, unauthorized auth, and malformed usage", async () => {
         const directory = await mkdtemp(join(tmpdir(), "aibar-grok-errors-"));
         const authPath = join(directory, "grok-auth.json");
@@ -940,7 +1004,8 @@ describe("Grok provider", () => {
         const directory = await mkdtemp(join(tmpdir(), "aibar-grok-auth-state-"));
         const authPath = join(directory, "grok-auth.json");
         try {
-            const missing = await renderGrokPayload({ authPath });
+            const cachePath = join(directory, "grok-last-good.json");
+            const missing = await renderGrokPayload({ authPath, cachePath });
             expect(missing.accessState).toBe("login_required");
 
             await writeFile(authPath, JSON.stringify({
@@ -949,18 +1014,21 @@ describe("Grok provider", () => {
             }));
             const unauthorized = await renderGrokPayload({
                 authPath,
+                cachePath,
                 fetchImpl: async () => new Response(null, { status: 401 }),
             });
             expect(unauthorized.accessState).toBe("login_required");
 
             const unavailable = await renderGrokPayload({
                 authPath,
+                cachePath,
                 fetchImpl: async () => new Response(null, { status: 503 }),
             });
             expect(unavailable.accessState).toBe("unavailable");
 
             const malformed = await renderGrokPayload({
                 authPath,
+                cachePath,
                 fetchImpl: async () => Response.json({
                     usagePercent: "42",
                     nextResetTimestampUtc: usageResponse.nextResetTimestampUtc,
