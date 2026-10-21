@@ -75,7 +75,7 @@ import Testing
 @Test func providerMetadataMatchesSharedEngine() {
     #expect(AIBarProvider.codex.displayName == "OpenAI")
     #expect(AIBarProvider.claude.displayName == "Anthropic")
-    #expect(AIBarProvider.grok.displayName == "SpaceXAI")
+    #expect(AIBarProvider.grok.displayName == "SpaceXSI")
     #expect(AIBarProvider.codex.badge == "O")
     #expect(AIBarProvider.claude.badge == "A")
     #expect(AIBarProvider.grok.badge == "S")
@@ -98,7 +98,7 @@ import Testing
 }
 
 @Test func derivesMenuBarBadgeSeverityFromWeeklyUsage() throws {
-    let data = Data(#"{"providers":[{"provider":"claude","weeklyPace":1,"payload":{"text":"A","tooltip":"Claude","accessState":"available","usageRows":[{"label":"Weekly","percentage":74.99,"resetText":"1d","severity":"normal"}]}},{"provider":"codex","weeklyPace":1,"payload":{"text":"O","tooltip":"Codex","accessState":"available","usageRows":[{"label":"Weekly","percentage":75,"resetText":"1d","severity":"normal"}]}},{"provider":"grok","weeklyPace":1,"payload":{"text":"S","tooltip":"SpaceXAI","accessState":"available","usageRows":[{"label":"Cursor Models (Monthly)","percentage":99,"resetText":"1d","severity":"critical"},{"label":"GrokBot (Weekly)","percentage":89.99,"resetText":"1d","severity":"normal"}]}}]}"#.utf8)
+    let data = Data(#"{"providers":[{"provider":"claude","weeklyPace":1,"payload":{"text":"A","tooltip":"Claude","accessState":"available","usageRows":[{"label":"Weekly","percentage":74.99,"resetText":"1d","severity":"normal"}]}},{"provider":"codex","weeklyPace":1,"payload":{"text":"O","tooltip":"Codex","accessState":"available","usageRows":[{"label":"Weekly","percentage":75,"resetText":"1d","severity":"normal"}]}},{"provider":"grok","weeklyPace":1,"payload":{"text":"S","tooltip":"SpaceXSI","accessState":"available","usageRows":[{"label":"Cursor Models (Monthly)","percentage":99,"resetText":"1d","severity":"critical"},{"label":"GrokBot (Weekly)","percentage":89.99,"resetText":"1d","severity":"normal"}]}}]}"#.utf8)
     let aggregate = try JSONDecoder().decode(AIBarAggregatePayload.self, from: data)
 
     #expect(aggregate.payload(for: .claude)?.menuBarBadgeSeverity == .normal)
