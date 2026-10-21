@@ -910,7 +910,7 @@ describe("Grok provider", () => {
         }
     });
 
-    test("keeps monthly SpaceXAI usage when the weekly call fails", async () => {
+    test("keeps monthly SpaceXSI usage when the weekly call fails", async () => {
         const directory = await mkdtemp(join(tmpdir(), "aibar-grok-weekly-"));
         const authPath = join(directory, "grok-auth.json");
         await writeFile(authPath, JSON.stringify({
@@ -940,7 +940,7 @@ describe("Grok provider", () => {
         }
     });
 
-    test("shows cached SpaceXAI usage when the live fetch fails", async () => {
+    test("shows cached SpaceXSI usage when the live fetch fails", async () => {
         const directory = await mkdtemp(join(tmpdir(), "aibar-grok-cache-"));
         const authPath = join(directory, "grok-auth.json");
         const cachePath = join(directory, "grok-last-good.json");
@@ -968,7 +968,7 @@ describe("Grok provider", () => {
             });
             expect(stale.accessState).toBe("stale");
             expect(stale.usageRows?.map((row) => row.label)).toContain("GrokBot (Weekly)");
-            expect(stale.tooltip).toContain("cached SpaceXAI usage");
+            expect(stale.tooltip).toContain("cached SpaceXSI usage");
         } finally {
             await rm(directory, { recursive: true, force: true });
         }

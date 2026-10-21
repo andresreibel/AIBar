@@ -9,7 +9,7 @@ public enum AIBarProvider: String, CaseIterable, Codable, Sendable {
         switch self {
         case .codex: "OpenAI"
         case .claude: "Anthropic"
-        case .grok: "SpaceXAI"
+        case .grok: "SpaceXSI"
         }
     }
 
@@ -77,7 +77,7 @@ public struct AIBarResetCredit: Decodable, Equatable, Sendable {
     public var expiryText: String {
         guard let expiresAt, expiresAt.isFinite else { return "Expiry unavailable" }
         let expiry = Date(timeIntervalSince1970: expiresAt)
-            .formatted(.dateTime.month(.abbreviated).day().hour().minute())
+            .formatted(.dateTime.month(.abbreviated).day().hour().minute().timeZone())
         return "Expires \(expiry)"
     }
 

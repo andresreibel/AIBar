@@ -661,7 +661,7 @@ function annotateCachedGrokPayload(payload: BarPayload, detail: string): BarPayl
         ...payload,
         accessState: "stale",
         text: stripLegacyBarCountdown(payload.text),
-        tooltip: `${compactLegacyTooltip(payload.tooltip)}\nStale · cached SpaceXAI usage\n${detail}`,
+        tooltip: `${compactLegacyTooltip(payload.tooltip)}\nStale · cached SpaceXSI usage\n${detail}`,
         class: mergeClasses(payload.class, "stale", "provider-grok"),
     };
 }

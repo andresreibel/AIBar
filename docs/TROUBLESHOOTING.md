@@ -21,9 +21,9 @@ brew install librsvg
 
 ## `Login required`
 
-Open **Notifications** from the slim control at the bottom of the dashboard and click **Login** for the provider. AIBar runs `codex login` for OpenAI, `claude auth login` for Anthropic, or its explicit SpaceXAI PKCE flow. Complete the provider flow and refresh. Its macOS menu-bar and Omarchy counter stay hidden until usage returns. **Clear notifications** hides the complete current set until its content changes.
+Open **Notifications** from the slim control at the bottom of the dashboard and click **Login** for the provider. AIBar runs `codex login` for OpenAI, `claude auth login` for Anthropic, or its explicit SpaceXSI PKCE flow. Complete the provider flow and refresh. Its macOS menu-bar and Omarchy counter stay hidden until usage returns. **Clear notifications** hides the complete current set until its content changes.
 
-SpaceXAI credentials are stored at `~/.codex/aibar/grok-auth.json` with mode `0600`. The browser opens only after the explicit **Login** action. Missing or rejected credentials show **Login required**; network and malformed-response failures do not claim that you are logged out.
+SpaceXSI credentials are stored at `~/.codex/aibar/grok-auth.json` with mode `0600`. The browser opens only after the explicit **Login** action. Missing or rejected credentials show **Login required**; network and malformed-response failures do not claim that you are logged out.
 
 ## `Subscription expired`
 
@@ -43,7 +43,7 @@ During temporary Claude failures or `429` backoff, AIBar reuses the last valid C
 
 ## Reset credit expiry notices
 
-An available OpenAI reset credit turns cosmic orange when it expires within 14 days and red when it expires within 7 days. The same expiry appears in the bottom notification center. If the count is available but no expiry details are returned by the local Codex app-server, AIBar keeps the count neutral, hides the disclosure chevron, and does not invent a deadline. The macOS app does not inherit a login-shell PATH, so that lookup resolves `codex` from nvm, `~/.local/bin`, Homebrew, and `/usr/local/bin` when the menu bar PATH misses it.
+An available OpenAI reset credit turns cosmic orange when it expires within 14 days and red when it expires within 7 days. The same expiry appears in the bottom notification center. Dates use your device's local time and show its timezone after the time; the timezone reflects any daylight-saving offset at the expiry date. If the count is available but no expiry details are returned by the local Codex app-server, AIBar keeps the count neutral, hides the disclosure chevron, and does not invent a deadline. The macOS app does not inherit a login-shell PATH, so that lookup resolves `codex` from nvm, `~/.local/bin`, Homebrew, and `/usr/local/bin` when the menu bar PATH misses it.
 
 ## Omarchy Quattro bar is missing or stale
 

@@ -41,7 +41,7 @@ except (ImportError, ValueError):
 PROVIDERS = {
     "claude": ("A", "Anthropic"),
     "codex": ("O", "OpenAI"),
-    "grok": ("S", "SpaceXAI"),
+    "grok": ("S", "SpaceXSI"),
 }
 
 ACCESS_PRESENTATION = {
@@ -348,7 +348,7 @@ def reset_credit_urgency(details, now=None):
 def expiry_text(expires_at):
     if not isinstance(expires_at, (int, float)) or not math.isfinite(expires_at):
         return "Expiry unavailable"
-    return datetime.fromtimestamp(expires_at).strftime("Expires %b %d at %I:%M %p").replace(" 0", " ")
+    return datetime.fromtimestamp(expires_at).astimezone().strftime("Expires %b %d at %I:%M %p %Z").replace(" 0", " ")
 
 
 def info_menu(title, lines, tooltip):

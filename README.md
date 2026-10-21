@@ -8,21 +8,21 @@
 | **macOS** | Native SwiftUI menu-bar app at `/Applications/AIBar.app` |
 | **Linux** | Shared engine and GTK dashboard under `~/.local/bin`, used by an Omarchy Quattro command widget |
 
-Both versions show the same Codex, Claude, and SpaceXAI (Grok) subscription limits in matching three-card dashboards. One shared TypeScript engine owns authentication, quota fetching, pacing, reset countdowns, caching, and fallbacks; each platform keeps a thin native desktop adapter.
+Both versions show the same Codex, Claude, and SpaceXSI (Grok) subscription limits in matching three-card dashboards. One shared TypeScript engine owns authentication, quota fetching, pacing, reset countdowns, caching, and fallbacks; each platform keeps a thin native desktop adapter.
 
 ### macOS menu-bar app
 
 ![AIBar macOS dashboard on a MacBook](assets/aibar-macos.png)
 
-The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXAI (Grok) simultaneously in three compact columns. Each column keeps its quota bars, reset countdowns, provider-specific details, and refresh time. The menu bar shows each connected provider's signed pace for the one pool selected for that provider.
+The native macOS dropdown shows OpenAI (Codex), Anthropic (Claude), and SpaceXSI (Grok) simultaneously in three compact columns. Each column keeps its quota bars, reset countdowns, provider-specific details, and refresh time. The menu bar shows each connected provider's signed pace for the one pool selected for that provider.
 
 ## Features
 
-- Matching Anthropic, OpenAI, and SpaceXAI dashboards on macOS and Linux, with full cards reserved for providers that have current or cached usage.
-- Expected-first comparison meters on macOS and Linux keep shared usage neutral, color only the difference, and show a small signed delta. Reset countdowns cover session and weekly windows, while SpaceXAI also shows Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly).
+- Matching Anthropic, OpenAI, and SpaceXSI dashboards on macOS and Linux, with full cards reserved for providers that have current or cached usage.
+- Expected-first comparison meters on macOS and Linux keep shared usage neutral, color only the difference, and show a small signed delta. Reset countdowns cover session and weekly windows, while SpaceXSI also shows Cursor Models (Monthly), Other Models (Monthly), and GrokBot (Weekly).
 - Signed weekly pace is `expected − actual`: negative means quota consumption is ahead of its linear allowance.
 - Providers without current or cached usage leave the main card area and the macOS menu-bar and Omarchy compact counters. The slim notification control at the bottom of either dashboard includes their status and Login actions; **Clear notifications** hides the current set until its content changes.
-- OpenAI reset-credit count in both dashboards, with each available credit's expiry shown by hovering over or clicking the macOS Reset credits row. Credits expiring within two weeks turn cosmic orange; credits expiring within one week turn red. Both thresholds also create a notification.
+- OpenAI reset-credit count in both dashboards, with each available credit's expiry shown by hovering over or clicking the macOS Reset credits row. Expiry dates include the device's local timezone after the time, including in notifications. Credits expiring within two weeks turn cosmic orange; credits expiring within one week turn red. Both thresholds also create a notification.
 - Five-minute background refresh plus initial and manual refresh with a one-second minimum loading spinner on both dashboards, with caching and rate-limit backoff.
 - Subtle per-provider last-updated time in both dashboards.
 - Native macOS launch-at-login control.
@@ -39,12 +39,12 @@ A -1%  O +4%  S +39%
 
 | Part | Meaning |
 | --- | --- |
-| `A` / `O` / `S` | Anthropic Claude / OpenAI Codex / SpaceXAI Grok |
+| `A` / `O` / `S` | Anthropic Claude / OpenAI Codex / SpaceXSI Grok |
 | Signed percentage | Expected consumption minus actual consumption for the one pool selected for that provider |
 
-The menu bar shows one pool per provider. A provider with a single pool has no selector. A provider with several pools shows a selector on each, and the one you pick is saved as that provider's default. Until you pick, the weekly pool is used, so the bar starts as `O -2%  S +64%`. Choosing Cursor monthly for SpaceXAI changes only the `S` number, to `S -1%`. The choice is stored in `~/.codex/aibar/menu-bar-rows.json`. On macOS the bar changes as soon as you select a pool. On Linux the Omarchy widget runs `aibar.ts --bar` every second, reads that same file, and shows the new text on its next read. On macOS only the provider letter changes color from that pool's usage: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. The signed pace keeps the native label color. The Linux bar shows the same text in its native color.
+The menu bar shows one pool per provider. A provider with a single pool has no selector. A provider with several pools shows a selector on each, and the one you pick is saved as that provider's default. Until you pick, the weekly pool is used, so the bar starts as `O -2%  S +64%`. Choosing Cursor monthly for SpaceXSI changes only the `S` number, to `S -1%`. The choice is stored in `~/.codex/aibar/menu-bar-rows.json`. On macOS the bar changes as soon as you select a pool. On Linux the Omarchy widget runs `aibar.ts --bar` every second, reads that same file, and shows the new text on its next read. On macOS only the provider letter changes color from that pool's usage: native label color below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more. The signed pace keeps the native label color. The Linux bar shows the same text in its native color.
 
-The macOS popover and Linux dashboard use the same fixed Anthropic, OpenAI, SpaceXAI order while giving full card width only to providers with current or cached usage. Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. A slim **Open** control at the bottom opens one notification center for unavailable quota lines, expiring reset credits, and provider access states. On macOS, click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list.
+The macOS popover and Linux dashboard use the same fixed Anthropic, OpenAI, SpaceXSI order while giving full card width only to providers with current or cached usage. Expected appears above Actual for every comparable quota. Shared usage stays neutral, only remaining expected capacity is green, and only usage above expected is orange or red. A small signed `expected − actual` delta sits beside the actual value. A slim **Open** control at the bottom opens one notification center for unavailable quota lines, expiring reset credits, and provider access states. On macOS, click the OpenAI Reset credits row to expand each available credit and its expiry; hover shows the same list.
 
 Linux uses the same checked-pool summary:
 
@@ -54,7 +54,7 @@ O -2%  S -1%
 
 Hover shows provider details; click opens the matching three-card dashboard. In the dashboard, only the pacing difference turns green, cosmic orange, or red; red begins when actual usage is at least 10 percentage points above expected.
 
-Window lengths differ by provider. Codex reports its own window length. Claude's weekly window is seven days and resets on the account's assigned weekly schedule. SpaceXAI combines Cursor's monthly model buckets with Grok's weekly percentage and next reset time. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how each provider supplies this.
+Window lengths differ by provider. Codex reports its own window length. Claude's weekly window is seven days and resets on the account's assigned weekly schedule. SpaceXSI combines Cursor's monthly model buckets with Grok's weekly percentage and next reset time. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how each provider supplies this.
 
 ## Install
 
@@ -140,10 +140,10 @@ AIBar keeps credentials outside the repository and application bundle. It reuses
 - Codex: `~/.codex/auth.json`.
 - Claude on Linux: `~/.claude/.credentials.json`.
 - Claude on macOS: the credentials file when present, otherwise the `Claude Code-credentials` Keychain item.
-- SpaceXAI: `~/.codex/aibar/grok-auth.json`, created with mode `0600` only after the explicit **Login** action.
+- SpaceXSI: `~/.codex/aibar/grok-auth.json`, created with mode `0600` only after the explicit **Login** action.
 - Linux provider selection and per-provider caches: `~/.codex/aibar/`.
 
-The shared engine may refresh existing Codex or Claude OAuth credentials when required. SpaceXAI uses its own explicit PKCE sign-in and never opens a browser during normal refresh. Both dashboards use the same provider states: **Login required** shows a **Login** action, **Subscription expired** shows no false login action, **Usage unavailable** preserves ordinary refresh behavior, and temporary Claude fallback is labelled as cached usage. Available and cached providers receive the full dashboard area. Other states appear only in the slim bottom notification center and are omitted from the macOS menu-bar and Omarchy counters. **Clear notifications** hides the current provider, quota, and expiring-credit notices until their content changes. Anthropic login state uses the documented `claude auth status` exit contract; the undocumented usage endpoint and observed `subscriptionType` field are not treated as subscription-entitlement signals. Bare `401`/`402`/`403`, network, rate-limit, and malformed-response failures are never called subscription expiry. See [troubleshooting](docs/TROUBLESHOOTING.md).
+The shared engine may refresh existing Codex or Claude OAuth credentials when required. SpaceXSI uses its own explicit PKCE sign-in and never opens a browser during normal refresh. Both dashboards use the same provider states: **Login required** shows a **Login** action, **Subscription expired** shows no false login action, **Usage unavailable** preserves ordinary refresh behavior, and temporary Claude fallback is labelled as cached usage. Available and cached providers receive the full dashboard area. Other states appear only in the slim bottom notification center and are omitted from the macOS menu-bar and Omarchy counters. **Clear notifications** hides the current provider, quota, and expiring-credit notices until their content changes. Anthropic login state uses the documented `claude auth status` exit contract; the undocumented usage endpoint and observed `subscriptionType` field are not treated as subscription-entitlement signals. Bare `401`/`402`/`403`, network, rate-limit, and malformed-response failures are never called subscription expiry. See [troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Development
 
@@ -163,7 +163,7 @@ See [architecture](docs/ARCHITECTURE.md), [troubleshooting](docs/TROUBLESHOOTING
 - macOS native app: built, installed, signed, launched, and live Codex usage verified.
 - Codex free reset credits: verified against `rate_limit_reset_credits.available_count`.
 - Claude macOS Keychain discovery: verified.
-- SpaceXAI login and live Cursor-backed Grok weekly usage: verified in the installed macOS app.
+- SpaceXSI login and live Cursor-backed Grok weekly usage: verified in the installed macOS app.
 - Claude live usage: account-dependent; the current OAuth endpoint can reject organization-managed accounts.
 - Linux: the Quattro command widget and GTK dashboard use the shared engine.
 

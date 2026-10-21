@@ -6,7 +6,7 @@ AIBar is one product with a shared provider engine and thin platform adapters.
 
 `aibar.ts` owns:
 
-- Codex and Claude credential loading, plus SpaceXAI PKCE sign-in and private credential storage.
+- Codex and Claude credential loading, plus SpaceXSI PKCE sign-in and private credential storage.
 - Provider usage requests and Codex RPC fallback.
 - Session and weekly quota parsing.
 - Pacing, warning state, reset countdowns, and reset-credit formatting.
@@ -48,7 +48,7 @@ Each dashboard still receives the fuller provider payload from `aibar.ts --all`:
 
 `resetCredits` remains the authoritative available count from the OpenAI usage response. After a successful OAuth usage read, the engine asks the supported local Codex app-server `account/rateLimits/read` method for optional `resetCreditDetails`. The menu bar process keeps a short PATH, so the engine resolves `codex` on that PATH and then under nvm, `~/.local/bin`, Homebrew, and `/usr/local/bin`. Each emitted detail contains only the backend display title and optional Unix-seconds expiry; account, credit, grant, and description fields are never retained. The macOS Reset credits row exposes the localized title and expiry list on hover and click. Both adapters color the count cosmic orange within 14 days of the earliest expiry and red within 7 days, and add each qualifying credit to the bottom notification center. Older/count-only Codex versions and failed enrichment return an empty list without hiding the count or failing quota refresh.
 
-The macOS app and Linux dashboard both invoke `aibar.ts --all`. That response wraps one payload per provider in fixed Anthropic, OpenAI, SpaceXAI order and includes `weeklyPace`, calculated as expected weekly percentage minus actual weekly percentage. It also includes `menuBar`, with one segment per connected provider: signed pace text, the saved row key, and severity taken from that pool's usage. Each provider reads or refreshes its own existing cache independently. One chosen pool per provider is stored in `menu-bar-rows.json`. Until a provider has a saved choice, its weekly row is used. A provider with only one pool has no selector. Choosing a pool replaces that provider's saved row and becomes the next default. macOS applies the new menu-bar text immediately. Linux `aibar.ts --bar` rebuilds the same text from the file, and the Omarchy widget runs that command every second. macOS colors only the provider letter from that pool's usage: native below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more.
+The macOS app and Linux dashboard both invoke `aibar.ts --all`. That response wraps one payload per provider in fixed Anthropic, OpenAI, SpaceXSI order and includes `weeklyPace`, calculated as expected weekly percentage minus actual weekly percentage. It also includes `menuBar`, with one segment per connected provider: signed pace text, the saved row key, and severity taken from that pool's usage. Each provider reads or refreshes its own existing cache independently. One chosen pool per provider is stored in `menu-bar-rows.json`. Until a provider has a saved choice, its weekly row is used. A provider with only one pool has no selector. Choosing a pool replaces that provider's saved row and becomes the next default. macOS applies the new menu-bar text immediately. Linux `aibar.ts --bar` rebuilds the same text from the file, and the Omarchy widget runs that command every second. macOS colors only the provider letter from that pool's usage: native below 75%, cosmic orange from 75% up to but not including 90%, and red at 90% or more.
 
 ## Quota windows
 
@@ -56,13 +56,15 @@ Pacing needs a window length, because `⧖` reports how much of the window has e
 
 - Codex returns `limit_window_seconds` per window, so the engine uses the reported length.
 - Claude's `/api/oauth/usage` returns only `utilization` and `resets_at`, so the engine holds the lengths as constants: `CLAUDE_SESSION_WINDOW_MS` (5 hours) and `CLAUDE_WEEKLY_WINDOW_MS` (7 days).
-- SpaceXAI's Cursor-backed `GetCurrentPeriodUsage` Connect endpoint supplies the Cursor Models (Monthly) and Other Models (Monthly) percentages and billing-cycle reset. `GetSandUsageStatus` supplies GrokBot (Weekly) usage and its next reset; the engine uses a seven-day pacing window for that row. The two calls run together with separate timeouts. If the weekly call fails and monthly usage is present, the SpaceXAI card still shows the monthly rows and records the weekly row as unavailable.
+- SpaceXSI's Cursor-backed `GetCurrentPeriodUsage` Connect endpoint supplies the Cursor Models (Monthly) and Other Models (Monthly) percentages and billing-cycle reset. `GetSandUsageStatus` supplies GrokBot (Weekly) usage and its next reset; the engine uses a seven-day pacing window for that row. The two calls run together with separate timeouts. If the weekly call fails and monthly usage is present, the SpaceXSI card still shows the monthly rows and records the weekly row as unavailable.
 
 Claude's weekly field is named `seven_day` and resets on a fixed account schedule. The reset day and time do not change when a subscription begins, so pacing must use the full seven-day cycle even when the implied start predates a recent signup or upgrade.
 
 ## Severity policy
 
 The shared engine derives severity independently for every quota row. Actual usage at or below expected is normal; usage above expected but less than 10% over pace is warning; usage at least 10% over pace is critical. The platform adapters map warning to cosmic orange (`#ff9e64`) and critical to red.
+
+Reset-credit expiry dates include the device's local timezone after the time. Both adapters resolve the timezone at the expiry date so daylight-saving changes are reflected in the details and notifications. The shared payload retains the original Unix-seconds timestamp.
 
 Reset-credit urgency is presentation-only and time-based: no color outside 14 days, cosmic orange at 14 days or less, and red at 7 days or less. It does not alter quota severity or compact output.
 
@@ -79,13 +81,13 @@ Clicking the bar launches the GTK dashboard. It invokes `aibar.ts --all`, decode
 The Swift package contains:
 
 - `AIBarCore`: single-provider and aggregate payload decoding, provider metadata, signed pace formatting, severity mapping, reset-credit expiry urgency, and macOS-only presentation cleanup.
-- `aibar-macos`: native SwiftUI content hosted in an `NSPopover`, a variable-width `NSStatusItem`, refresh scheduling, SpaceXAI sign-in, and shared-engine process execution.
+- `aibar-macos`: native SwiftUI content hosted in an `NSPopover`, a variable-width `NSStatusItem`, refresh scheduling, SpaceXSI sign-in, and shared-engine process execution.
 
 The packaged app bundles `aibar.ts` under `Contents/Resources`. The Swift app locates Bun, invokes `--all` off the main actor, decodes the aggregate payload, and renders all providers. Provider logic is not duplicated in Swift.
 
 The dropdown uses the status button's display and fits its content within the usable screen area. AppKit's native `NSPopover` placement owns the vertical position; AIBar preserves that position after opening and only corrects the horizontal origin to keep a 12-point side margin. Its height follows the measured content, up to 450 points, at a preferred width of 620 points. With no visible notifications, it omits the notification row and uses 16 points of bottom padding. It accounts for the popover's window chrome when sizing content. Smaller areas use fewer provider columns and vertical scrolling; the refresh header and notification control remain outside the scrolling area. `AIBarPopoverLayout` owns the screen-coordinate calculations, including displays with negative origins.
 
-The menu bar displays signed pace for one saved pool per eligible Anthropic, OpenAI, and SpaceXAI account. macOS applies that text as soon as the pool is selected and colors only the provider letter from that pool's usage. Linux shows the same text through the one-second command widget. The macOS popover and Linux dashboard give the full card area only to providers with current or cached usage; provider selection remains a Linux-only interaction. Comparable rows place Expected above Actual, show a compact signed `expected − actual` delta, and color only the non-overlapping meter segment green, orange, or red. Both dashboards collect unavailable quota lines, qualifying reset-credit expiries, and provider access states into one slim notification control at the bottom instead of placing persistent warnings inside usage cards.
+The menu bar displays signed pace for one saved pool per eligible Anthropic, OpenAI, and SpaceXSI account. macOS applies that text as soon as the pool is selected and colors only the provider letter from that pool's usage. Linux shows the same text through the one-second command widget. The macOS popover and Linux dashboard give the full card area only to providers with current or cached usage; provider selection remains a Linux-only interaction. Comparable rows place Expected above Actual, show a compact signed `expected − actual` delta, and color only the non-overlapping meter segment green, orange, or red. Both dashboards collect unavailable quota lines, qualifying reset-credit expiries, and provider access states into one slim notification control at the bottom instead of placing persistent warnings inside usage cards.
 
 Every normalized provider payload has one engine-owned `accessState`: `available`, `stale`, `unavailable`, `login_required`, or `subscription_expired`. Both adapters render the same label and action table and never inspect credentials or parse provider errors. **Login required** is the only state with a **Login** action. Only available or cached-stale providers receive full dashboard cards and compact counters. Other states remain in `--all` and appear in the bottom notification center. Clearing notifications persists a deterministic signature covering the current provider states, unavailable quotas, credit expiries, and urgency; any content change invalidates the dismissal. Old render caches without a valid state are rejected. For Anthropic, a documented `claude auth status` exit code of `1`, missing Claude.ai OAuth credentials, or OAuth refresh `invalid_grant` means login is required. The undocumented OAuth usage endpoint's `401`/`402`/`403`, `429`, network, malformed-response, and generic failures remain unavailable. The observed `subscriptionType` JSON field is not a documented current-entitlement contract and is not used. `subscription_expired` is reserved for a future documented entitlement signal and is not inferred from status codes or prose.
 
@@ -94,7 +96,7 @@ Every normalized provider payload has one engine-owned `accessState`: `available
 - Codex uses `~/.codex/auth.json`.
 - Claude uses `~/.claude/.credentials.json` when available.
 - On macOS, Claude falls back to the `Claude Code-credentials` Keychain item.
-- SpaceXAI uses AIBar-owned `~/.codex/aibar/grok-auth.json`, written atomically with mode `0600` after an explicit PKCE sign-in. The browser opens only for that user action; normal refreshes never initiate login. Grok usage requests have a 10-second timeout, and missing or rejected credentials require explicit reconnection.
+- SpaceXSI uses AIBar-owned `~/.codex/aibar/grok-auth.json`, written atomically with mode `0600` after an explicit PKCE sign-in. The browser opens only for that user action; normal refreshes never initiate login. Grok usage requests have a 10-second timeout, and missing or rejected credentials require explicit reconnection.
 
 Credential values must never appear in tests, logs, screenshots, documentation, or Git history.
 
